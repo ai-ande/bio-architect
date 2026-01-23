@@ -1,5 +1,6 @@
 # Sensitive Data
 .env
+data
 
 # Ralph
 ralph/prd.json
