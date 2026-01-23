@@ -1,6 +1,13 @@
 # Sensitive Data
 .env
 
+# Ralph
+ralph/prd.json
+ralph/progress.txt
+ralph/.last-branch
+ralph/archive/*
+ralph/tasks
+
 # Python
 __pycache__/
 *.py[cod]
