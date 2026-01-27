@@ -1,0 +1,25 @@
+[project]
+name = "bio-architect"
+version = "0.1.0"
+description = "Bio data management and analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

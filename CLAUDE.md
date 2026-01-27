@@ -3,4 +3,5 @@
 ## Development Guidelines
 
 - **TDD**: Always start with tests. Follow Test-Driven Development.
-- **Python**: Use `uv` for package management. Virtual environment at `.venv`.
+- **Package Management**: Use `uv` for package management. Virtual environment at `.venv`.
+- **Models**: Use Pydantic for data models. Include UUIDs for database entities.
