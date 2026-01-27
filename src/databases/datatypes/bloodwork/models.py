@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from .validators import BiomarkerCode
+
 
 class Flag(str, Enum):
     """Biomarker result flag indicating normal/abnormal status."""
@@ -24,7 +26,7 @@ class Biomarker(BaseModel):
 
     id: UUID = Field(default_factory=uuid4, description="Unique identifier")
     name: str = Field(..., description="Display name of the biomarker")
-    code: str = Field(..., description="Standardized code for temporal tracking")
+    code: BiomarkerCode = Field(..., description="Standardized code for temporal tracking")
     value: float = Field(..., description="Measured value")
     unit: str = Field(..., description="Unit of measurement")
     reference_low: Optional[float] = Field(

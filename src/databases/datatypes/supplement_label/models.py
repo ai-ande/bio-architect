@@ -6,6 +6,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from .validators import IngredientCode
+
 
 class SupplementForm(str, Enum):
     """Physical form of the supplement."""
@@ -19,35 +21,34 @@ class SupplementForm(str, Enum):
     LOZENGE = "lozenge"
 
 
-class ActiveIngredient(BaseModel):
-    """An active ingredient with a specified amount per serving."""
+class IngredientBase(BaseModel):
+    """Base class for ingredients with code validation."""
 
     id: UUID = Field(default_factory=uuid4, description="Unique identifier")
     name: str = Field(..., description="Display name of the ingredient")
-    code: str = Field(..., description="Standardized code for tracking")
+    code: IngredientCode = Field(..., description="Standardized code for tracking")
+
+
+class ActiveIngredient(IngredientBase):
+    """An active ingredient with a specified amount per serving."""
+
     amount: float = Field(..., description="Amount per serving")
     unit: str = Field(..., description="Unit of measurement")
     percent_dv: Optional[float] = Field(None, description="Percent daily value")
     form: Optional[str] = Field(None, description="Specific form of the ingredient")
 
 
-class BlendIngredient(BaseModel):
+class BlendIngredient(IngredientBase):
     """An ingredient within a proprietary blend (amount may not be disclosed)."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    name: str = Field(..., description="Display name of the ingredient")
-    code: str = Field(..., description="Standardized code for tracking")
     amount: Optional[float] = Field(None, description="Amount per serving (if disclosed)")
     unit: Optional[str] = Field(None, description="Unit of measurement")
     form: Optional[str] = Field(None, description="Specific form of the ingredient")
 
 
-class OtherIngredient(BaseModel):
+class OtherIngredient(IngredientBase):
     """A non-active ingredient (excipient, filler, capsule material, etc.)."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    name: str = Field(..., description="Display name of the ingredient")
-    code: str = Field(..., description="Standardized code for tracking")
     amount: Optional[float] = Field(None, description="Amount if specified")
     unit: Optional[str] = Field(None, description="Unit of measurement")
 

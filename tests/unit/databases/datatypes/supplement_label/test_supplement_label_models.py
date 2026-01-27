@@ -4,14 +4,141 @@ from uuid import UUID
 
 import pytest
 
-from src.databases.models.supplement_label import (
+from src.databases.datatypes.supplement_label import (
     ActiveIngredient,
     BlendIngredient,
     OtherIngredient,
     ProprietaryBlend,
     SupplementForm,
     SupplementLabel,
+    VALID_INGREDIENT_CODES,
 )
+
+
+class TestIngredientCodeValidation:
+    """Tests for ingredient code validation."""
+
+    def test_valid_codes_loaded_from_yaml(self):
+        """Verify that valid codes are loaded from the YAML file."""
+        assert "VITAMIN_A" in VALID_INGREDIENT_CODES
+        assert "ZINC" in VALID_INGREDIENT_CODES
+        assert "L_LEUCINE" in VALID_INGREDIENT_CODES
+        assert "ASHWAGANDHA" in VALID_INGREDIENT_CODES
+        assert "OMEGA_3" in VALID_INGREDIENT_CODES
+        assert "COENZYME_Q10" in VALID_INGREDIENT_CODES
+        assert "MICROCRYSTALLINE_CELLULOSE" in VALID_INGREDIENT_CODES
+
+    def test_active_ingredient_accepts_valid_yaml_code(self):
+        """Valid codes from YAML should be accepted."""
+        ingredient = ActiveIngredient(
+            name="Zinc",
+            code="ZINC",
+            amount=30,
+            unit="mg",
+        )
+        assert ingredient.code == "ZINC"
+
+    def test_active_ingredient_accepts_valid_custom_code(self):
+        """Custom codes following format rules should be accepted."""
+        ingredient = ActiveIngredient(
+            name="Custom Ingredient",
+            code="CUSTOM_INGREDIENT",
+            amount=100,
+            unit="mg",
+        )
+        assert ingredient.code == "CUSTOM_INGREDIENT"
+
+    def test_active_ingredient_rejects_lowercase_code(self):
+        """Lowercase codes should be rejected."""
+        with pytest.raises(ValueError, match="must be uppercase"):
+            ActiveIngredient(
+                name="Zinc",
+                code="zinc",
+                amount=30,
+                unit="mg",
+            )
+
+    def test_active_ingredient_rejects_code_with_spaces(self):
+        """Codes with spaces should be rejected."""
+        with pytest.raises(ValueError, match="must not contain spaces"):
+            ActiveIngredient(
+                name="Vitamin A",
+                code="VITAMIN A",
+                amount=100,
+                unit="IU",
+            )
+
+    def test_active_ingredient_rejects_code_with_special_chars(self):
+        """Codes with special characters (other than underscore) should be rejected."""
+        with pytest.raises(ValueError, match="invalid characters"):
+            ActiveIngredient(
+                name="Test",
+                code="TEST-CODE",
+                amount=100,
+                unit="mg",
+            )
+
+    def test_active_ingredient_rejects_empty_code(self):
+        """Empty codes should be rejected."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            ActiveIngredient(
+                name="Test",
+                code="",
+                amount=100,
+                unit="mg",
+            )
+
+    def test_blend_ingredient_validates_code(self):
+        """BlendIngredient should also validate codes."""
+        with pytest.raises(ValueError, match="must be uppercase"):
+            BlendIngredient(
+                name="Invalid",
+                code="invalid_code",
+            )
+
+    def test_blend_ingredient_accepts_valid_code(self):
+        """BlendIngredient should accept valid codes."""
+        ingredient = BlendIngredient(
+            name="Valerian",
+            code="VALERIAN",
+        )
+        assert ingredient.code == "VALERIAN"
+
+    def test_other_ingredient_validates_code(self):
+        """OtherIngredient should also validate codes."""
+        with pytest.raises(ValueError, match="must be uppercase"):
+            OtherIngredient(
+                name="Invalid",
+                code="invalid_code",
+            )
+
+    def test_other_ingredient_accepts_valid_code(self):
+        """OtherIngredient should accept valid codes."""
+        ingredient = OtherIngredient(
+            name="Hypromellose",
+            code="HYPROMELLOSE",
+        )
+        assert ingredient.code == "HYPROMELLOSE"
+
+    def test_code_allows_numbers(self):
+        """Codes with numbers should be valid."""
+        ingredient = ActiveIngredient(
+            name="Vitamin B12",
+            code="VITAMIN_B12",
+            amount=1000,
+            unit="mcg",
+        )
+        assert ingredient.code == "VITAMIN_B12"
+
+    def test_code_allows_leading_underscore_for_amino_acids(self):
+        """L_ prefix for amino acids should be valid."""
+        ingredient = ActiveIngredient(
+            name="L-Glutamine",
+            code="L_GLUTAMINE",
+            amount=500,
+            unit="mg",
+        )
+        assert ingredient.code == "L_GLUTAMINE"
 
 
 class TestSupplementForm:

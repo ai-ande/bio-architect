@@ -5,7 +5,96 @@ from uuid import UUID
 
 import pytest
 
-from src.databases.models.bloodwork import Biomarker, Flag, LabReport, Panel
+from src.databases.datatypes.bloodwork import (
+    Biomarker,
+    Flag,
+    LabReport,
+    Panel,
+    VALID_BIOMARKER_CODES,
+)
+
+
+class TestBiomarkerCodeValidation:
+    """Tests for biomarker code validation."""
+
+    def test_valid_codes_loaded_from_yaml(self):
+        """Verify that valid codes are loaded from the YAML file."""
+        assert "GLUCOSE" in VALID_BIOMARKER_CODES
+        assert "HDL" in VALID_BIOMARKER_CODES
+        assert "TSH" in VALID_BIOMARKER_CODES
+        assert "HEMOGLOBIN" in VALID_BIOMARKER_CODES
+        assert "VITAMIN_D" in VALID_BIOMARKER_CODES
+        assert "HS_CRP" in VALID_BIOMARKER_CODES
+
+    def test_biomarker_accepts_valid_yaml_code(self):
+        """Valid codes from YAML should be accepted."""
+        biomarker = Biomarker(
+            name="Glucose",
+            code="GLUCOSE",
+            value=95.0,
+            unit="mg/dL",
+        )
+        assert biomarker.code == "GLUCOSE"
+
+    def test_biomarker_accepts_valid_custom_code(self):
+        """Custom codes following format rules should be accepted."""
+        biomarker = Biomarker(
+            name="Custom Biomarker",
+            code="CUSTOM_BIOMARKER",
+            value=100.0,
+            unit="mg/dL",
+        )
+        assert biomarker.code == "CUSTOM_BIOMARKER"
+
+    def test_biomarker_rejects_lowercase_code(self):
+        """Lowercase codes should be rejected."""
+        with pytest.raises(ValueError, match="must be uppercase"):
+            Biomarker(
+                name="Glucose",
+                code="glucose",
+                value=95.0,
+                unit="mg/dL",
+            )
+
+    def test_biomarker_rejects_code_with_spaces(self):
+        """Codes with spaces should be rejected."""
+        with pytest.raises(ValueError, match="must not contain spaces"):
+            Biomarker(
+                name="Total Cholesterol",
+                code="TOTAL CHOLESTEROL",
+                value=200.0,
+                unit="mg/dL",
+            )
+
+    def test_biomarker_rejects_code_with_special_chars(self):
+        """Codes with special characters (other than underscore) should be rejected."""
+        with pytest.raises(ValueError, match="invalid characters"):
+            Biomarker(
+                name="Test",
+                code="TEST-CODE",
+                value=100.0,
+                unit="mg/dL",
+            )
+
+    def test_biomarker_rejects_empty_code(self):
+        """Empty codes should be rejected."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            Biomarker(
+                name="Test",
+                code="",
+                value=100.0,
+                unit="mg/dL",
+            )
+
+    def test_code_allows_numbers(self):
+        """Codes with numbers should be valid."""
+        biomarker = Biomarker(
+            name="Vitamin B12",
+            code="VITAMIN_B12",
+            value=500.0,
+            unit="pg/mL",
+        )
+        assert biomarker.code == "VITAMIN_B12"
 
 
 class TestFlag:
