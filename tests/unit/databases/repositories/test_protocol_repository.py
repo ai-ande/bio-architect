@@ -377,6 +377,107 @@ class TestGetProtocolHistory:
         assert len(result) == 5
 
 
+class TestGetSupplementsByProtocol:
+    """Tests for get_supplements_by_protocol method."""
+
+    def test_get_supplements_by_protocol_returns_list(self, repository, sample_protocol, sample_supplement):
+        """get_supplements_by_protocol returns a list."""
+        repository.insert_protocol(sample_protocol)
+        repository.insert_supplement(sample_supplement)
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert isinstance(result, list)
+
+    def test_get_supplements_by_protocol_returns_supplement_models(
+        self, repository, sample_protocol, sample_supplement
+    ):
+        """get_supplements_by_protocol returns ProtocolSupplement models."""
+        repository.insert_protocol(sample_protocol)
+        repository.insert_supplement(sample_supplement)
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert len(result) == 1
+        assert isinstance(result[0], ProtocolSupplement)
+
+    def test_get_supplements_by_protocol_returns_empty_list(self, repository, sample_protocol):
+        """get_supplements_by_protocol returns empty list when no supplements."""
+        repository.insert_protocol(sample_protocol)
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert result == []
+
+    def test_get_supplements_by_protocol_returns_empty_for_nonexistent(self, repository):
+        """get_supplements_by_protocol returns empty list for nonexistent protocol."""
+        result = repository.get_supplements_by_protocol(uuid4())
+        assert result == []
+
+    def test_get_supplements_by_protocol_returns_correct_supplements(self, repository, sample_protocol):
+        """get_supplements_by_protocol returns only supplements for the given protocol."""
+        # Create another protocol
+        other_protocol = SupplementProtocol(
+            id=uuid4(),
+            protocol_date=date(2024, 2, 1),
+        )
+        repository.insert_protocol(sample_protocol)
+        repository.insert_protocol(other_protocol)
+
+        # Add supplements to both protocols
+        supp1 = ProtocolSupplement(
+            id=uuid4(),
+            protocol_id=sample_protocol.id,
+            type=ProtocolSupplementType.SCHEDULED,
+            name="Vitamin D3",
+            frequency=Frequency.DAILY,
+        )
+        supp2 = ProtocolSupplement(
+            id=uuid4(),
+            protocol_id=other_protocol.id,
+            type=ProtocolSupplementType.SCHEDULED,
+            name="Magnesium",
+            frequency=Frequency.DAILY,
+        )
+        repository.insert_supplement(supp1)
+        repository.insert_supplement(supp2)
+
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert len(result) == 1
+        assert result[0].name == "Vitamin D3"
+
+    def test_get_supplements_by_protocol_returns_multiple(self, repository, sample_protocol):
+        """get_supplements_by_protocol returns all supplements for a protocol."""
+        repository.insert_protocol(sample_protocol)
+        names = ["Zinc", "Magnesium", "Vitamin D3"]
+        for name in names:
+            supplement = ProtocolSupplement(
+                id=uuid4(),
+                protocol_id=sample_protocol.id,
+                type=ProtocolSupplementType.SCHEDULED,
+                name=name,
+                frequency=Frequency.DAILY,
+            )
+            repository.insert_supplement(supplement)
+
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert len(result) == 3
+
+    def test_get_supplements_by_protocol_ordered_by_name(self, repository, sample_protocol):
+        """get_supplements_by_protocol returns supplements ordered by name."""
+        repository.insert_protocol(sample_protocol)
+        # Insert in non-alphabetical order
+        names = ["Zinc", "Ashwagandha", "Magnesium"]
+        for name in names:
+            supplement = ProtocolSupplement(
+                id=uuid4(),
+                protocol_id=sample_protocol.id,
+                type=ProtocolSupplementType.SCHEDULED,
+                name=name,
+                frequency=Frequency.DAILY,
+            )
+            repository.insert_supplement(supplement)
+
+        result = repository.get_supplements_by_protocol(sample_protocol.id)
+        assert result[0].name == "Ashwagandha"
+        assert result[1].name == "Magnesium"
+        assert result[2].name == "Zinc"
+
+
 class TestEdgeCases:
     """Edge case tests."""
 

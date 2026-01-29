@@ -185,6 +185,31 @@ class ProtocolRepository:
             lifestyle_notes=json.loads(row["lifestyle_notes"]),
         )
 
+    def get_supplements_by_protocol(self, protocol_id: UUID) -> list[ProtocolSupplement]:
+        """Get all supplements for a protocol.
+
+        Args:
+            protocol_id: UUID of the supplement protocol.
+
+        Returns:
+            List of ProtocolSupplement models for the protocol.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, protocol_id, supplement_label_id, type, name, instructions,
+                   dosage, frequency, upon_waking, breakfast, mid_morning,
+                   lunch, mid_afternoon, dinner, before_sleep
+            FROM protocol_supplements
+            WHERE protocol_id = ?
+            ORDER BY name
+            """,
+            (str(protocol_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_supplement(row) for row in rows]
+
     def _row_to_supplement(self, row) -> ProtocolSupplement:
         """Convert a database row to a ProtocolSupplement model.
 
