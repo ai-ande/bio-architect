@@ -4,7 +4,7 @@ from uuid import UUID
 
 import pytest
 
-from src.databases.datatypes.supplement_label import (
+from src.databases.datatypes.supplement import (
     ActiveIngredient,
     BlendIngredient,
     OtherIngredient,

@@ -1,7 +1,7 @@
 """Tests for bloodwork models."""
 
-from datetime import date
-from uuid import UUID
+from datetime import date, datetime
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -28,7 +28,9 @@ class TestBiomarkerCodeValidation:
 
     def test_biomarker_accepts_valid_yaml_code(self):
         """Valid codes from YAML should be accepted."""
+        panel_id = uuid4()
         biomarker = Biomarker(
+            panel_id=panel_id,
             name="Glucose",
             code="GLUCOSE",
             value=95.0,
@@ -38,7 +40,9 @@ class TestBiomarkerCodeValidation:
 
     def test_biomarker_accepts_valid_custom_code(self):
         """Custom codes following format rules should be accepted."""
+        panel_id = uuid4()
         biomarker = Biomarker(
+            panel_id=panel_id,
             name="Custom Biomarker",
             code="CUSTOM_BIOMARKER",
             value=100.0,
@@ -50,6 +54,7 @@ class TestBiomarkerCodeValidation:
         """Lowercase codes should be rejected."""
         with pytest.raises(ValueError, match="must be uppercase"):
             Biomarker(
+                panel_id=uuid4(),
                 name="Glucose",
                 code="glucose",
                 value=95.0,
@@ -60,6 +65,7 @@ class TestBiomarkerCodeValidation:
         """Codes with spaces should be rejected."""
         with pytest.raises(ValueError, match="must not contain spaces"):
             Biomarker(
+                panel_id=uuid4(),
                 name="Total Cholesterol",
                 code="TOTAL CHOLESTEROL",
                 value=200.0,
@@ -70,6 +76,7 @@ class TestBiomarkerCodeValidation:
         """Codes with special characters (other than underscore) should be rejected."""
         with pytest.raises(ValueError, match="invalid characters"):
             Biomarker(
+                panel_id=uuid4(),
                 name="Test",
                 code="TEST-CODE",
                 value=100.0,
@@ -80,6 +87,7 @@ class TestBiomarkerCodeValidation:
         """Empty codes should be rejected."""
         with pytest.raises(ValueError, match="cannot be empty"):
             Biomarker(
+                panel_id=uuid4(),
                 name="Test",
                 code="",
                 value=100.0,
@@ -88,7 +96,9 @@ class TestBiomarkerCodeValidation:
 
     def test_code_allows_numbers(self):
         """Codes with numbers should be valid."""
+        panel_id = uuid4()
         biomarker = Biomarker(
+            panel_id=panel_id,
             name="Vitamin B12",
             code="VITAMIN_B12",
             value=500.0,
@@ -114,7 +124,9 @@ class TestBiomarker:
     """Tests for Biomarker model."""
 
     def test_create_minimal_biomarker(self):
+        panel_id = uuid4()
         biomarker = Biomarker(
+            panel_id=panel_id,
             name="Glucose",
             code="GLUCOSE",
             value=95.0,
@@ -124,22 +136,33 @@ class TestBiomarker:
         assert biomarker.code == "GLUCOSE"
         assert biomarker.value == 95.0
         assert biomarker.unit == "mg/dL"
+        assert biomarker.panel_id == panel_id
 
     def test_biomarker_has_uuid(self):
-        biomarker = Biomarker(name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL")
+        biomarker = Biomarker(
+            panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
         assert isinstance(biomarker.id, UUID)
 
     def test_biomarker_uuid_is_unique(self):
-        b1 = Biomarker(name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL")
-        b2 = Biomarker(name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL")
+        panel_id = uuid4()
+        b1 = Biomarker(
+            panel_id=panel_id, name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
+        b2 = Biomarker(
+            panel_id=panel_id, name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
         assert b1.id != b2.id
 
     def test_biomarker_default_flag_is_normal(self):
-        biomarker = Biomarker(name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL")
+        biomarker = Biomarker(
+            panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
         assert biomarker.flag == Flag.NORMAL
 
     def test_biomarker_with_reference_range(self):
         biomarker = Biomarker(
+            panel_id=uuid4(),
             name="Glucose",
             code="GLUCOSE",
             value=95.0,
@@ -152,6 +175,7 @@ class TestBiomarker:
 
     def test_biomarker_with_flag(self):
         biomarker = Biomarker(
+            panel_id=uuid4(),
             name="Glucose",
             code="GLUCOSE",
             value=150.0,
@@ -161,87 +185,63 @@ class TestBiomarker:
         assert biomarker.flag == Flag.HIGH
 
     def test_biomarker_optional_fields_default_to_none(self):
-        biomarker = Biomarker(name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL")
+        biomarker = Biomarker(
+            panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
         assert biomarker.reference_low is None
         assert biomarker.reference_high is None
-        assert biomarker.collected_date is None
-        assert biomarker.lab_provider is None
-        assert biomarker.panel_name is None
 
     def test_biomarker_missing_required_field_raises(self):
         with pytest.raises(ValueError):
-            Biomarker(name="Glucose", code="GLUCOSE", value=95.0)  # missing unit
+            Biomarker(
+                panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0
+            )  # missing unit
+
+    def test_biomarker_requires_panel_id(self):
+        with pytest.raises(ValueError):
+            Biomarker(
+                name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+            )  # missing panel_id
+
+    def test_biomarker_no_temporal_context_fields(self):
+        """Verify temporal context fields were removed."""
+        biomarker = Biomarker(
+            panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
+        )
+        assert not hasattr(biomarker, "collected_date")
+        assert not hasattr(biomarker, "lab_provider")
+        assert not hasattr(biomarker, "panel_name")
 
 
 class TestPanel:
     """Tests for Panel model."""
 
     def test_create_minimal_panel(self):
-        panel = Panel(name="CBC")
+        lab_report_id = uuid4()
+        panel = Panel(lab_report_id=lab_report_id, name="CBC")
         assert panel.name == "CBC"
-        assert panel.biomarkers == []
+        assert panel.lab_report_id == lab_report_id
 
     def test_panel_has_uuid(self):
-        panel = Panel(name="CBC")
+        panel = Panel(lab_report_id=uuid4(), name="CBC")
         assert isinstance(panel.id, UUID)
 
     def test_panel_with_comment(self):
-        panel = Panel(name="CBC", comment="Fasting sample")
+        panel = Panel(lab_report_id=uuid4(), name="CBC", comment="Fasting sample")
         assert panel.comment == "Fasting sample"
 
-    def test_panel_with_biomarkers(self):
-        biomarkers = [
-            Biomarker(name="WBC", code="WBC", value=7.5, unit="K/uL"),
-            Biomarker(name="RBC", code="RBC", value=4.8, unit="M/uL"),
-        ]
-        panel = Panel(name="CBC", biomarkers=biomarkers)
-        assert len(panel.biomarkers) == 2
-        assert panel.biomarkers[0].name == "WBC"
+    def test_panel_requires_lab_report_id(self):
+        with pytest.raises(ValueError):
+            Panel(name="CBC")  # missing lab_report_id
+
+    def test_panel_is_flat_no_biomarkers_list(self):
+        """Verify Panel does not have nested biomarkers list."""
+        panel = Panel(lab_report_id=uuid4(), name="CBC")
+        assert not hasattr(panel, "biomarkers")
 
 
 class TestLabReport:
     """Tests for LabReport model."""
-
-    @pytest.fixture
-    def sample_report(self) -> LabReport:
-        """Create a sample lab report for testing."""
-        return LabReport(
-            lab_provider="LabCorp",
-            collected_date=date(2024, 1, 15),
-            panels=[
-                Panel(
-                    name="Lipid Panel",
-                    biomarkers=[
-                        Biomarker(
-                            name="Total Cholesterol",
-                            code="CHOLESTEROL_TOTAL",
-                            value=210.0,
-                            unit="mg/dL",
-                            flag=Flag.HIGH,
-                        ),
-                        Biomarker(
-                            name="HDL",
-                            code="HDL",
-                            value=55.0,
-                            unit="mg/dL",
-                            flag=Flag.NORMAL,
-                        ),
-                    ],
-                ),
-                Panel(
-                    name="Metabolic Panel",
-                    biomarkers=[
-                        Biomarker(
-                            name="Glucose",
-                            code="GLUCOSE",
-                            value=65.0,
-                            unit="mg/dL",
-                            flag=Flag.LOW,
-                        ),
-                    ],
-                ),
-            ],
-        )
 
     def test_create_minimal_report(self):
         report = LabReport(
@@ -250,67 +250,44 @@ class TestLabReport:
         )
         assert report.lab_provider == "Quest"
         assert report.collected_date == date(2024, 1, 15)
-        assert report.panels == []
 
     def test_report_has_uuid(self):
         report = LabReport(lab_provider="Quest", collected_date=date(2024, 1, 15))
         assert isinstance(report.id, UUID)
 
-    def test_report_optional_dates(self):
-        report = LabReport(
-            lab_provider="Quest",
-            collected_date=date(2024, 1, 15),
-            received_date=date(2024, 1, 16),
-            reported_date=date(2024, 1, 17),
-        )
-        assert report.received_date == date(2024, 1, 16)
-        assert report.reported_date == date(2024, 1, 17)
-
-    def test_get_all_biomarkers(self, sample_report: LabReport):
-        biomarkers = sample_report.get_all_biomarkers()
-        assert len(biomarkers) == 3
-        codes = [b.code for b in biomarkers]
-        assert "CHOLESTEROL_TOTAL" in codes
-        assert "HDL" in codes
-        assert "GLUCOSE" in codes
-
-    def test_get_all_biomarkers_empty_report(self):
+    def test_report_has_created_at_with_default(self):
+        before = datetime.now()
         report = LabReport(lab_provider="Quest", collected_date=date(2024, 1, 15))
-        assert report.get_all_biomarkers() == []
+        after = datetime.now()
+        assert isinstance(report.created_at, datetime)
+        assert before <= report.created_at <= after
 
-    def test_get_biomarker_by_code_found(self, sample_report: LabReport):
-        biomarker = sample_report.get_biomarker_by_code("HDL")
-        assert biomarker is not None
-        assert biomarker.name == "HDL"
-        assert biomarker.value == 55.0
-
-    def test_get_biomarker_by_code_not_found(self, sample_report: LabReport):
-        biomarker = sample_report.get_biomarker_by_code("NONEXISTENT")
-        assert biomarker is None
-
-    def test_get_flagged_biomarkers(self, sample_report: LabReport):
-        flagged = sample_report.get_flagged_biomarkers()
-        assert len(flagged) == 2
-        codes = [b.code for b in flagged]
-        assert "CHOLESTEROL_TOTAL" in codes  # HIGH
-        assert "GLUCOSE" in codes  # LOW
-        assert "HDL" not in codes  # NORMAL
-
-    def test_get_flagged_biomarkers_none_flagged(self):
+    def test_report_with_source_file(self):
         report = LabReport(
             lab_provider="Quest",
             collected_date=date(2024, 1, 15),
-            panels=[
-                Panel(
-                    name="CBC",
-                    biomarkers=[
-                        Biomarker(name="WBC", code="WBC", value=7.5, unit="K/uL"),
-                    ],
-                ),
-            ],
+            source_file="labcorp_2024.pdf",
         )
-        assert report.get_flagged_biomarkers() == []
+        assert report.source_file == "labcorp_2024.pdf"
 
     def test_report_missing_required_field_raises(self):
         with pytest.raises(ValueError):
             LabReport(lab_provider="Quest")  # missing collected_date
+
+    def test_report_is_flat_no_panels_list(self):
+        """Verify LabReport does not have nested panels list."""
+        report = LabReport(lab_provider="Quest", collected_date=date(2024, 1, 15))
+        assert not hasattr(report, "panels")
+
+    def test_report_no_received_or_reported_date(self):
+        """Verify received_date and reported_date were removed."""
+        report = LabReport(lab_provider="Quest", collected_date=date(2024, 1, 15))
+        assert not hasattr(report, "received_date")
+        assert not hasattr(report, "reported_date")
+
+    def test_report_no_helper_methods(self):
+        """Verify helper methods were removed (flat models don't need them)."""
+        report = LabReport(lab_provider="Quest", collected_date=date(2024, 1, 15))
+        assert not hasattr(report, "get_all_biomarkers")
+        assert not hasattr(report, "get_biomarker_by_code")
+        assert not hasattr(report, "get_flagged_biomarkers")
