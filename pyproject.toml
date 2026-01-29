@@ -20,8 +20,8 @@ dev = [
 bloodwork = "cli.databases.bloodwork:main"
 dna = "cli.databases.dna:main"
 knowledge = "cli.databases.knowledge:main"
-protocol = "cli.databases.protocol:main"
-supplements = "cli.databases.supplements:main"
+protocols = "cli.databases.supplement_protocol:main"
+supplements = "cli.databases.supplement:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

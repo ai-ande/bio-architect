@@ -218,7 +218,7 @@ def cmd_search(session: Session, args: argparse.Namespace) -> None:
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for supplements CLI."""
     parser = argparse.ArgumentParser(
-        prog="supplements",
+        prog="supplement",
         description="Query supplement label data from the command line.",
     )
     parser.add_argument(

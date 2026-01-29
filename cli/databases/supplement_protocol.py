@@ -205,7 +205,7 @@ def print_protocol_details(session: Session, protocol: SupplementProtocol) -> No
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for protocol CLI."""
     parser = argparse.ArgumentParser(
-        prog="protocol",
+        prog="protocols",
         description="Query supplement protocol data from the command line.",
     )
     parser.add_argument(
