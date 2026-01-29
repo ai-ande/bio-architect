@@ -2,16 +2,14 @@
 
 from uuid import UUID
 
-from sqlmodel import Session, or_, select
+from sqlmodel import or_, select
 
+from ..base import BaseRepository
 from .models import Ingredient, ProprietaryBlend, SupplementLabel
 
 
-class SupplementRepository:
+class SupplementRepository(BaseRepository):
     """Repository for supplement database operations."""
-
-    def __init__(self, session: Session):
-        self.session = session
 
     def list_labels(self) -> list[SupplementLabel]:
         """List all supplement labels ordered by brand and product name."""
@@ -72,8 +70,15 @@ class SupplementRepository:
         label: SupplementLabel,
         blends: list[ProprietaryBlend],
         ingredients: list[Ingredient],
-    ) -> None:
-        """Save a supplement label with blends and ingredients atomically."""
+    ) -> bool:
+        """Save a supplement label with blends and ingredients atomically.
+
+        Returns:
+            True if newly created, False if already imported.
+        """
+        if self.get_existing_by_source_file(SupplementLabel, label.source_file):
+            return False
+
         self.session.add(label)
         self.session.flush()  # Ensure label exists before blends/ingredients
 
@@ -85,3 +90,4 @@ class SupplementRepository:
             self.session.add(ingredient)
 
         self.session.commit()
+        return True

@@ -163,11 +163,16 @@ def cmd_import(repo: BloodworkRepository, args: argparse.Namespace) -> None:
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Save via repository (atomic transaction)
-    repo.save_report(lab_report, panels, biomarkers)
+    # Step 2: Save via repository
+    created = repo.save_report(lab_report, panels, biomarkers)
 
     # Output
-    if args.json:
+    if not created:
+        if args.json:
+            print(json.dumps({"status": "already_imported"}))
+        else:
+            print(f"Already imported: {source_file}")
+    elif args.json:
         print(json.dumps({
             "lab_report_id": str(lab_report.id),
             "panels_created": len(panels),

@@ -208,11 +208,16 @@ def cmd_import(repo: SupplementRepository, args: argparse.Namespace) -> None:
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Save via repository (atomic transaction)
-    repo.save_label(label, blends, ingredients)
+    # Step 2: Save via repository
+    created = repo.save_label(label, blends, ingredients)
 
     # Output
-    if args.json:
+    if not created:
+        if args.json:
+            print(json.dumps({"status": "already_imported"}))
+        else:
+            print(f"Already imported: {source_file}")
+    elif args.json:
         print(json.dumps({
             "supplement_label_id": str(label.id),
             "blends_created": len(blends),

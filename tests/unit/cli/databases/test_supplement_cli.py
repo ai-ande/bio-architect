@@ -338,3 +338,26 @@ class TestSupplementImport:
         with pytest.raises(SystemExit) as exc_info:
             cmd_import(repo, args)
         assert exc_info.value.code == 1
+
+    def test_import_same_file_twice_returns_already_imported(
+        self, tmp_path, db_session, repo, sample_json, capsys
+    ):
+        """Import should return already_imported when file was previously imported."""
+        json_file = tmp_path / "supplement.json"
+        json_file.write_text(json.dumps(sample_json))
+
+        # First import
+        args = argparse.Namespace(file=str(json_file), json=True)
+        cmd_import(repo, args)
+        capsys.readouterr()
+
+        # Second import of same file
+        cmd_import(repo, args)
+        second_output = capsys.readouterr()
+        second_result = json.loads(second_output.out)
+
+        assert second_result["status"] == "already_imported"
+
+        # Verify only one record exists
+        labels = db_session.exec(select(SupplementLabel)).all()
+        assert len(labels) == 1

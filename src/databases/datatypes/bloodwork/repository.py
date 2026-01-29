@@ -2,16 +2,14 @@
 
 from uuid import UUID
 
-from sqlmodel import Session, select
+from sqlmodel import select
 
+from ..base import BaseRepository
 from .models import Biomarker, Flag, LabReport, Panel
 
 
-class BloodworkRepository:
+class BloodworkRepository(BaseRepository):
     """Repository for bloodwork database operations."""
-
-    def __init__(self, session: Session):
-        self.session = session
 
     def list_reports(self) -> list[LabReport]:
         """List all lab reports ordered by collected_date descending."""
@@ -77,8 +75,15 @@ class BloodworkRepository:
         report: LabReport,
         panels: list[Panel],
         biomarkers: list[Biomarker],
-    ) -> None:
-        """Save a lab report with its panels and biomarkers atomically."""
+    ) -> bool:
+        """Save a lab report with its panels and biomarkers atomically.
+
+        Returns:
+            True if newly created, False if already imported.
+        """
+        if self.get_existing_by_source_file(LabReport, report.source_file):
+            return False
+
         self.session.add(report)
         self.session.flush()  # Ensure report exists before panels
 
@@ -90,3 +95,4 @@ class BloodworkRepository:
             self.session.add(biomarker)
 
         self.session.commit()
+        return True

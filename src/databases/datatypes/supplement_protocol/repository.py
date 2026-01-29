@@ -2,16 +2,14 @@
 
 from uuid import UUID
 
-from sqlmodel import Session, select
+from sqlmodel import select
 
+from ..base import BaseRepository
 from .models import ProtocolSupplement, SupplementProtocol
 
 
-class SupplementProtocolRepository:
+class SupplementProtocolRepository(BaseRepository):
     """Repository for supplement protocol database operations."""
-
-    def __init__(self, session: Session):
-        self.session = session
 
     def list_protocols(self) -> list[SupplementProtocol]:
         """List all protocols ordered by date descending."""
@@ -46,8 +44,15 @@ class SupplementProtocolRepository:
         self,
         protocol: SupplementProtocol,
         supplements: list[ProtocolSupplement],
-    ) -> None:
-        """Save a protocol with its supplements atomically."""
+    ) -> bool:
+        """Save a protocol with its supplements atomically.
+
+        Returns:
+            True if newly created, False if already imported.
+        """
+        if self.get_existing_by_source_file(SupplementProtocol, protocol.source_file):
+            return False
+
         self.session.add(protocol)
         self.session.flush()  # Ensure protocol exists before supplements
 
@@ -55,3 +60,4 @@ class SupplementProtocolRepository:
             self.session.add(supplement)
 
         self.session.commit()
+        return True

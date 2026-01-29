@@ -201,11 +201,16 @@ def cmd_import(repo: SupplementProtocolRepository, args: argparse.Namespace) -> 
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Save via repository (atomic transaction)
-    repo.save_protocol(protocol, supplements)
+    # Step 2: Save via repository
+    created = repo.save_protocol(protocol, supplements)
 
     # Output
-    if args.json:
+    if not created:
+        if args.json:
+            print(json.dumps({"status": "already_imported"}))
+        else:
+            print(f"Already imported: {source_file}")
+    elif args.json:
         print(json.dumps({
             "protocol_id": str(protocol.id),
             "supplements_created": len(supplements),
