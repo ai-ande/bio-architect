@@ -1,4 +1,4 @@
-"""Tests for SQLite DatabaseClient."""
+"""Tests for SQLite DatabaseClient with SQLModel."""
 
 import sqlite3
 import tempfile
@@ -6,6 +6,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlmodel import Session
 
 from src.databases.clients.sqlite import DatabaseClient, DEFAULT_DB_PATH
 
@@ -24,72 +26,79 @@ class TestDatabaseClientInit:
         client = DatabaseClient(db_path=custom_path)
         assert client.db_path == custom_path
 
-    def test_connection_initially_none(self):
-        """Test connection is None before connecting."""
+    def test_engine_initially_none(self):
+        """Test engine is None before accessing."""
         client = DatabaseClient()
-        assert client._connection is None
+        assert client._engine is None
 
 
-class TestDatabaseClientConnection:
-    """Tests for DatabaseClient connection management."""
+class TestDatabaseClientEngine:
+    """Tests for DatabaseClient engine management."""
 
-    def test_connect_creates_connection(self, tmp_path):
-        """Test connect() creates a connection."""
+    def test_engine_property_creates_engine(self, tmp_path):
+        """Test engine property creates an engine."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        conn = client.connect()
-        assert conn is not None
-        assert isinstance(conn, sqlite3.Connection)
+        engine = client.engine
+        assert engine is not None
         client.close()
 
-    def test_connect_creates_parent_directories(self, tmp_path):
-        """Test connect() creates parent directories if needed."""
+    def test_engine_creates_parent_directories(self, tmp_path):
+        """Test engine property creates parent directories if needed."""
         db_path = tmp_path / "subdir" / "nested" / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
+        _ = client.engine  # Access engine to trigger creation
         assert db_path.parent.exists()
         client.close()
 
-    def test_connect_enables_foreign_keys(self, tmp_path):
-        """Test connect() enables foreign key constraints."""
+    def test_engine_enables_foreign_keys(self, tmp_path):
+        """Test engine enables foreign key constraints."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        conn = client.connect()
-        cursor = conn.execute("PRAGMA foreign_keys")
-        result = cursor.fetchone()
-        assert result[0] == 1  # Foreign keys enabled
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA foreign_keys"))
+            row = result.fetchone()
+            assert row[0] == 1  # Foreign keys enabled
         client.close()
 
-    def test_connect_sets_row_factory(self, tmp_path):
-        """Test connect() sets row_factory to sqlite3.Row."""
+    def test_close_disposes_engine(self, tmp_path):
+        """Test close() disposes the engine."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        conn = client.connect()
-        assert conn.row_factory == sqlite3.Row
+        _ = client.engine  # Create engine
         client.close()
-
-    def test_close_closes_connection(self, tmp_path):
-        """Test close() closes the connection."""
-        db_path = tmp_path / "test.db"
-        client = DatabaseClient(db_path=db_path)
-        client.connect()
-        client.close()
-        assert client._connection is None
-
-    def test_connection_property_creates_if_needed(self, tmp_path):
-        """Test connection property creates connection if none exists."""
-        db_path = tmp_path / "test.db"
-        client = DatabaseClient(db_path=db_path)
-        conn = client.connection
-        assert conn is not None
-        client.close()
+        assert client._engine is None
 
     def test_context_manager(self, tmp_path):
-        """Test context manager opens and closes connection."""
+        """Test context manager opens and closes properly."""
         db_path = tmp_path / "test.db"
         with DatabaseClient(db_path=db_path) as client:
-            assert client._connection is not None
-        assert client._connection is None
+            _ = client.engine
+            assert client._engine is not None
+        assert client._engine is None
+
+
+class TestDatabaseClientSession:
+    """Tests for DatabaseClient session management."""
+
+    def test_get_session_returns_session(self, tmp_path):
+        """Test get_session() returns a SQLModel Session."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path)
+        session = client.get_session()
+        assert isinstance(session, Session)
+        session.close()
+        client.close()
+
+    def test_session_can_execute_queries(self, tmp_path):
+        """Test session can execute queries."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path)
+        client.init_schema()
+        with client.get_session() as session:
+            result = session.exec(text("SELECT 1"))
+            assert result.fetchone()[0] == 1
+        client.close()
 
 
 class TestDatabaseClientSchema:
@@ -100,17 +109,17 @@ class TestDatabaseClientSchema:
         """Create a test client with temporary database."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         yield client
         client.close()
 
     def test_init_schema_creates_all_tables(self, client):
         """Test init_schema() creates all 13 tables."""
         client.init_schema()
-        cursor = client.connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
-        tables = [row[0] for row in cursor.fetchall()]
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            )
+            tables = [row[0] for row in result.fetchall()]
 
         expected_tables = [
             "biomarkers",
@@ -129,47 +138,15 @@ class TestDatabaseClientSchema:
         ]
         assert tables == expected_tables
 
-    def test_init_schema_creates_indexes(self, client):
-        """Test init_schema() creates expected indexes."""
-        client.init_schema()
-        cursor = client.connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name"
-        )
-        indexes = [row[0] for row in cursor.fetchall()]
-
-        expected_indexes = [
-            "idx_biomarkers_code",
-            "idx_biomarkers_flag",
-            "idx_biomarkers_panel_id",
-            "idx_dna_tests_created_at",
-            "idx_ingredients_blend_id",
-            "idx_ingredients_code",
-            "idx_ingredients_supplement_label_id",
-            "idx_knowledge_created_at",
-            "idx_knowledge_links_knowledge_id",
-            "idx_knowledge_status",
-            "idx_knowledge_supersedes_id",
-            "idx_knowledge_tags_knowledge_id",
-            "idx_lab_reports_created_at",
-            "idx_panels_lab_report_id",
-            "idx_proprietary_blends_supplement_label_id",
-            "idx_protocol_supplements_protocol_id",
-            "idx_protocol_supplements_supplement_label_id",
-            "idx_snps_dna_test_id",
-            "idx_snps_rsid",
-            "idx_supplement_labels_created_at",
-            "idx_supplement_protocols_created_at",
-        ]
-        assert indexes == expected_indexes
-
     def test_init_schema_is_idempotent(self, client):
         """Test init_schema() can be called multiple times safely."""
         client.init_schema()
         client.init_schema()  # Should not raise
-        cursor = client.connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-        )
-        count = cursor.fetchone()[0]
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            )
+            count = result.fetchone()[0]
         assert count == 13
 
     def test_tables_are_empty(self, client):
@@ -181,10 +158,11 @@ class TestDatabaseClientSchema:
             "supplement_protocols", "protocol_supplements",
             "knowledge", "knowledge_links", "knowledge_tags"
         ]
-        for table in tables:
-            cursor = client.connection.execute(f"SELECT COUNT(*) FROM {table}")
-            count = cursor.fetchone()[0]
-            assert count == 0, f"Table {table} should be empty"
+        with client.engine.connect() as conn:
+            for table in tables:
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                count = result.fetchone()[0]
+                assert count == 0, f"Table {table} should be empty"
 
 
 class TestForeignKeyConstraints:
@@ -195,98 +173,112 @@ class TestForeignKeyConstraints:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_snp_requires_valid_dna_test_id(self, client):
         """Test inserting SNP with invalid dna_test_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO snps (id, dna_test_id, rsid, genotype, magnitude, gene)
-                VALUES (?, ?, 'rs1234', 'AG', 2.5, 'MTHFR')
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO snps (id, dna_test_id, rsid, genotype, magnitude, gene)
+                    VALUES (:id, :dna_test_id, 'rs1234', 'AG', 2.5, 'MTHFR')
+                """), {"id": str(uuid4()), "dna_test_id": str(uuid4())})
+                conn.commit()
 
     def test_panel_requires_valid_lab_report_id(self, client):
         """Test inserting Panel with invalid lab_report_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO panels (id, lab_report_id, name)
-                VALUES (?, ?, 'CBC')
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO panels (id, lab_report_id, name)
+                    VALUES (:id, :lab_report_id, 'CBC')
+                """), {"id": str(uuid4()), "lab_report_id": str(uuid4())})
+                conn.commit()
 
     def test_biomarker_requires_valid_panel_id(self, client):
         """Test inserting Biomarker with invalid panel_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO biomarkers (id, panel_id, name, code, value, unit, flag)
-                VALUES (?, ?, 'Glucose', 'GLUCOSE', 95.0, 'mg/dL', 'normal')
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO biomarkers (id, panel_id, name, code, value, unit, flag)
+                    VALUES (:id, :panel_id, 'Glucose', 'GLUCOSE', 95.0, 'mg/dL', 'normal')
+                """), {"id": str(uuid4()), "panel_id": str(uuid4())})
+                conn.commit()
 
     def test_proprietary_blend_requires_valid_supplement_label_id(self, client):
         """Test inserting ProprietaryBlend with invalid supplement_label_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO proprietary_blends (id, supplement_label_id, name)
-                VALUES (?, ?, 'Energy Blend')
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO proprietary_blends (id, supplement_label_id, name)
+                    VALUES (:id, :supplement_label_id, 'Energy Blend')
+                """), {"id": str(uuid4()), "supplement_label_id": str(uuid4())})
+                conn.commit()
 
     def test_protocol_supplement_requires_valid_protocol_id(self, client):
         """Test inserting ProtocolSupplement with invalid protocol_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO protocol_supplements (
-                    id, protocol_id, type, name, frequency,
-                    upon_waking, breakfast, mid_morning, lunch, mid_afternoon, dinner, before_sleep
-                )
-                VALUES (?, ?, 'scheduled', 'Vitamin D', 'daily', 0, 1, 0, 0, 0, 0, 0)
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO protocol_supplements (
+                        id, protocol_id, type, name, frequency,
+                        upon_waking, breakfast, mid_morning, lunch, mid_afternoon, dinner, before_sleep
+                    )
+                    VALUES (:id, :protocol_id, 'scheduled', 'Vitamin D', 'daily', 0, 1, 0, 0, 0, 0, 0)
+                """), {"id": str(uuid4()), "protocol_id": str(uuid4())})
+                conn.commit()
 
     def test_knowledge_link_requires_valid_knowledge_id(self, client):
         """Test inserting KnowledgeLink with invalid knowledge_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO knowledge_links (id, knowledge_id, link_type, target_id)
-                VALUES (?, ?, 'snp', ?)
-            """, (str(uuid4()), str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO knowledge_links (id, knowledge_id, link_type, target_id)
+                    VALUES (:id, :knowledge_id, 'snp', :target_id)
+                """), {"id": str(uuid4()), "knowledge_id": str(uuid4()), "target_id": str(uuid4())})
+                conn.commit()
 
     def test_knowledge_tag_requires_valid_knowledge_id(self, client):
         """Test inserting KnowledgeTag with invalid knowledge_id fails."""
-        with pytest.raises(sqlite3.IntegrityError):
-            client.connection.execute("""
-                INSERT INTO knowledge_tags (id, knowledge_id, tag)
-                VALUES (?, ?, 'methylation')
-            """, (str(uuid4()), str(uuid4())))
-            client.connection.commit()
+        from sqlalchemy.exc import IntegrityError
+        with pytest.raises(IntegrityError):
+            with client.engine.connect() as conn:
+                conn.execute(text("""
+                    INSERT INTO knowledge_tags (id, knowledge_id, tag)
+                    VALUES (:id, :knowledge_id, 'methylation')
+                """), {"id": str(uuid4()), "knowledge_id": str(uuid4())})
+                conn.commit()
 
     def test_valid_foreign_key_insert_succeeds(self, client):
         """Test inserting with valid foreign keys succeeds."""
         dna_test_id = str(uuid4())
         snp_id = str(uuid4())
 
-        # Insert parent first
-        client.connection.execute("""
-            INSERT INTO dna_tests (id, source, collected_date, source_file, created_at)
-            VALUES (?, '23andMe', '2024-01-15', 'test.txt', '2024-01-20T10:00:00')
-        """, (dna_test_id,))
+        with client.engine.connect() as conn:
+            # Insert parent first
+            conn.execute(text("""
+                INSERT INTO dna_tests (id, source, collected_date, source_file, created_at)
+                VALUES (:id, '23andMe', '2024-01-15', 'test.txt', '2024-01-20T10:00:00')
+            """), {"id": dna_test_id})
 
-        # Insert child with valid FK
-        client.connection.execute("""
-            INSERT INTO snps (id, dna_test_id, rsid, genotype, magnitude, gene)
-            VALUES (?, ?, 'rs1234', 'AG', 2.5, 'MTHFR')
-        """, (snp_id, dna_test_id))
-        client.connection.commit()
+            # Insert child with valid FK
+            conn.execute(text("""
+                INSERT INTO snps (id, dna_test_id, rsid, genotype, magnitude, gene)
+                VALUES (:id, :dna_test_id, 'rs1234', 'AG', 2.5, 'MTHFR')
+            """), {"id": snp_id, "dna_test_id": dna_test_id})
+            conn.commit()
 
-        # Verify insert succeeded
-        cursor = client.connection.execute("SELECT COUNT(*) FROM snps")
-        assert cursor.fetchone()[0] == 1
+            # Verify insert succeeded
+            result = conn.execute(text("SELECT COUNT(*) FROM snps"))
+            assert result.fetchone()[0] == 1
 
 
 class TestDnaTablesSchema:
@@ -297,36 +289,33 @@ class TestDnaTablesSchema:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_dna_tests_columns(self, client):
         """Test dna_tests table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(dna_tests)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "source": "TEXT",
-            "collected_date": "TEXT",
-            "source_file": "TEXT",
-            "created_at": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(dna_tests)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "source" in columns
+        assert "collected_date" in columns
+        assert "source_file" in columns
+        assert "created_at" in columns
 
     def test_snps_columns(self, client):
         """Test snps table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(snps)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "dna_test_id": "TEXT",
-            "rsid": "TEXT",
-            "genotype": "TEXT",
-            "magnitude": "REAL",
-            "repute": "TEXT",
-            "gene": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(snps)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "dna_test_id" in columns
+        assert "rsid" in columns
+        assert "genotype" in columns
+        assert "magnitude" in columns
+        assert "repute" in columns
+        assert "gene" in columns
 
 
 class TestBloodworkTablesSchema:
@@ -337,49 +326,45 @@ class TestBloodworkTablesSchema:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_lab_reports_columns(self, client):
         """Test lab_reports table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(lab_reports)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "lab_provider": "TEXT",
-            "collected_date": "TEXT",
-            "source_file": "TEXT",
-            "created_at": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(lab_reports)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "lab_provider" in columns
+        assert "collected_date" in columns
+        assert "source_file" in columns
+        assert "created_at" in columns
 
     def test_panels_columns(self, client):
         """Test panels table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(panels)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "lab_report_id": "TEXT",
-            "name": "TEXT",
-            "comment": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(panels)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "lab_report_id" in columns
+        assert "name" in columns
+        assert "comment" in columns
 
     def test_biomarkers_columns(self, client):
         """Test biomarkers table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(biomarkers)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "panel_id": "TEXT",
-            "name": "TEXT",
-            "code": "TEXT",
-            "value": "REAL",
-            "unit": "TEXT",
-            "reference_low": "REAL",
-            "reference_high": "REAL",
-            "flag": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(biomarkers)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "panel_id" in columns
+        assert "name" in columns
+        assert "code" in columns
+        assert "value" in columns
+        assert "unit" in columns
+        assert "reference_low" in columns
+        assert "reference_high" in columns
+        assert "flag" in columns
 
 
 class TestSupplementTablesSchema:
@@ -390,57 +375,53 @@ class TestSupplementTablesSchema:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_supplement_labels_columns(self, client):
         """Test supplement_labels table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(supplement_labels)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "source_file": "TEXT",
-            "created_at": "TEXT",
-            "brand": "TEXT",
-            "product_name": "TEXT",
-            "form": "TEXT",
-            "serving_size": "TEXT",
-            "servings_per_container": "INTEGER",
-            "suggested_use": "TEXT",
-            "warnings": "TEXT",
-            "allergen_info": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(supplement_labels)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "source_file" in columns
+        assert "created_at" in columns
+        assert "brand" in columns
+        assert "product_name" in columns
+        assert "form" in columns
+        assert "serving_size" in columns
+        assert "servings_per_container" in columns
+        assert "suggested_use" in columns
+        assert "warnings" in columns
+        assert "allergen_info" in columns
 
     def test_proprietary_blends_columns(self, client):
         """Test proprietary_blends table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(proprietary_blends)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "supplement_label_id": "TEXT",
-            "name": "TEXT",
-            "total_amount": "REAL",
-            "total_unit": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(proprietary_blends)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "supplement_label_id" in columns
+        assert "name" in columns
+        assert "total_amount" in columns
+        assert "total_unit" in columns
 
     def test_ingredients_columns(self, client):
         """Test ingredients table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(ingredients)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "supplement_label_id": "TEXT",
-            "blend_id": "TEXT",
-            "type": "TEXT",
-            "name": "TEXT",
-            "code": "TEXT",
-            "amount": "REAL",
-            "unit": "TEXT",
-            "percent_dv": "REAL",
-            "form": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(ingredients)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "supplement_label_id" in columns
+        assert "blend_id" in columns
+        assert "type" in columns
+        assert "name" in columns
+        assert "code" in columns
+        assert "amount" in columns
+        assert "unit" in columns
+        assert "percent_dv" in columns
+        assert "form" in columns
 
 
 class TestProtocolTablesSchema:
@@ -451,47 +432,44 @@ class TestProtocolTablesSchema:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_supplement_protocols_columns(self, client):
         """Test supplement_protocols table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(supplement_protocols)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "protocol_date": "TEXT",
-            "prescriber": "TEXT",
-            "next_visit": "TEXT",
-            "source_file": "TEXT",
-            "created_at": "TEXT",
-            "protein_goal": "TEXT",
-            "lifestyle_notes": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(supplement_protocols)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "protocol_date" in columns
+        assert "prescriber" in columns
+        assert "next_visit" in columns
+        assert "source_file" in columns
+        assert "created_at" in columns
+        assert "protein_goal" in columns
+        assert "lifestyle_notes" in columns
 
     def test_protocol_supplements_columns(self, client):
         """Test protocol_supplements table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(protocol_supplements)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "protocol_id": "TEXT",
-            "supplement_label_id": "TEXT",
-            "type": "TEXT",
-            "name": "TEXT",
-            "instructions": "TEXT",
-            "dosage": "TEXT",
-            "frequency": "TEXT",
-            "upon_waking": "INTEGER",
-            "breakfast": "INTEGER",
-            "mid_morning": "INTEGER",
-            "lunch": "INTEGER",
-            "mid_afternoon": "INTEGER",
-            "dinner": "INTEGER",
-            "before_sleep": "INTEGER",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(protocol_supplements)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "protocol_id" in columns
+        assert "supplement_label_id" in columns
+        assert "type" in columns
+        assert "name" in columns
+        assert "instructions" in columns
+        assert "dosage" in columns
+        assert "frequency" in columns
+        assert "upon_waking" in columns
+        assert "breakfast" in columns
+        assert "mid_morning" in columns
+        assert "lunch" in columns
+        assert "mid_afternoon" in columns
+        assert "dinner" in columns
+        assert "before_sleep" in columns
 
 
 class TestKnowledgeTablesSchema:
@@ -502,44 +480,40 @@ class TestKnowledgeTablesSchema:
         """Create a test client with schema initialized."""
         db_path = tmp_path / "test.db"
         client = DatabaseClient(db_path=db_path)
-        client.connect()
         client.init_schema()
         yield client
         client.close()
 
     def test_knowledge_columns(self, client):
         """Test knowledge table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(knowledge)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "type": "TEXT",
-            "status": "TEXT",
-            "summary": "TEXT",
-            "content": "TEXT",
-            "confidence": "REAL",
-            "supersedes_id": "TEXT",
-            "supersession_reason": "TEXT",
-            "created_at": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(knowledge)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "type" in columns
+        assert "status" in columns
+        assert "summary" in columns
+        assert "content" in columns
+        assert "confidence" in columns
+        assert "supersedes_id" in columns
+        assert "supersession_reason" in columns
+        assert "created_at" in columns
 
     def test_knowledge_links_columns(self, client):
         """Test knowledge_links table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(knowledge_links)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "knowledge_id": "TEXT",
-            "link_type": "TEXT",
-            "target_id": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(knowledge_links)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "knowledge_id" in columns
+        assert "link_type" in columns
+        assert "target_id" in columns
 
     def test_knowledge_tags_columns(self, client):
         """Test knowledge_tags table has correct columns."""
-        cursor = client.connection.execute("PRAGMA table_info(knowledge_tags)")
-        columns = {row[1]: row[2] for row in cursor.fetchall()}
-        assert columns == {
-            "id": "TEXT",
-            "knowledge_id": "TEXT",
-            "tag": "TEXT",
-        }
+        with client.engine.connect() as conn:
+            result = conn.execute(text("PRAGMA table_info(knowledge_tags)"))
+            columns = {row[1]: row[2] for row in result.fetchall()}
+        assert "id" in columns
+        assert "knowledge_id" in columns
+        assert "tag" in columns

@@ -1,14 +1,17 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 """CLI for querying DNA data."""
 
+import argcomplete
 import argparse
 import json
 import sys
 from typing import Optional
 
+from sqlmodel import Session, select
+
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.dna import DnaTest, Snp
-from src.databases.repositories.dna import DnaRepository
 
 
 def format_snp(snp: Snp) -> str:
@@ -46,9 +49,10 @@ def dna_test_to_dict(test: DnaTest) -> dict:
     }
 
 
-def cmd_list(repo: DnaRepository, args: argparse.Namespace) -> None:
+def cmd_list(session: Session, args: argparse.Namespace) -> None:
     """List all DNA tests."""
-    tests = repo.get_all_tests()
+    statement = select(DnaTest).order_by(DnaTest.collected_date.desc())
+    tests = session.exec(statement).all()
     if args.json:
         print(json.dumps([dna_test_to_dict(t) for t in tests], indent=2))
     else:
@@ -61,9 +65,10 @@ def cmd_list(repo: DnaRepository, args: argparse.Namespace) -> None:
             print(format_test(test))
 
 
-def cmd_snp(repo: DnaRepository, args: argparse.Namespace) -> None:
+def cmd_snp(session: Session, args: argparse.Namespace) -> None:
     """Show details for a single SNP by rsid."""
-    snp = repo.get_snp_by_rsid(args.rsid)
+    statement = select(Snp).where(Snp.rsid == args.rsid)
+    snp = session.exec(statement).first()
     if snp is None:
         print(f"SNP not found: {args.rsid}", file=sys.stderr)
         sys.exit(1)
@@ -75,9 +80,10 @@ def cmd_snp(repo: DnaRepository, args: argparse.Namespace) -> None:
         print(format_snp(snp))
 
 
-def cmd_gene(repo: DnaRepository, args: argparse.Namespace) -> None:
+def cmd_gene(session: Session, args: argparse.Namespace) -> None:
     """Show all SNPs for a gene."""
-    snps = repo.get_snps_by_gene(args.gene)
+    statement = select(Snp).where(Snp.gene == args.gene).order_by(Snp.magnitude.desc())
+    snps = session.exec(statement).all()
     if args.json:
         print(json.dumps([snp_to_dict(s) for s in snps], indent=2))
     else:
@@ -90,9 +96,10 @@ def cmd_gene(repo: DnaRepository, args: argparse.Namespace) -> None:
             print(format_snp(snp))
 
 
-def cmd_high_impact(repo: DnaRepository, args: argparse.Namespace) -> None:
+def cmd_high_impact(session: Session, args: argparse.Namespace) -> None:
     """Show SNPs with magnitude >= 3."""
-    snps = repo.get_high_impact_snps(min_magnitude=3.0)
+    statement = select(Snp).where(Snp.magnitude >= 3.0).order_by(Snp.magnitude.desc())
+    snps = session.exec(statement).all()
     if args.json:
         print(json.dumps([snp_to_dict(s) for s in snps], indent=2))
     else:
@@ -139,6 +146,7 @@ def create_parser() -> argparse.ArgumentParser:
 def main(args: Optional[list[str]] = None) -> None:
     """Main entry point for DNA CLI."""
     parser = create_parser()
+    argcomplete.autocomplete(parser)
     parsed_args = parser.parse_args(args)
 
     if parsed_args.command is None:
@@ -146,16 +154,15 @@ def main(args: Optional[list[str]] = None) -> None:
         sys.exit(1)
 
     with DatabaseClient() as client:
-        repo = DnaRepository(client)
-
-        if parsed_args.command == "list":
-            cmd_list(repo, parsed_args)
-        elif parsed_args.command == "snp":
-            cmd_snp(repo, parsed_args)
-        elif parsed_args.command == "gene":
-            cmd_gene(repo, parsed_args)
-        elif parsed_args.command == "high-impact":
-            cmd_high_impact(repo, parsed_args)
+        with client.get_session() as session:
+            if parsed_args.command == "list":
+                cmd_list(session, parsed_args)
+            elif parsed_args.command == "snp":
+                cmd_snp(session, parsed_args)
+            elif parsed_args.command == "gene":
+                cmd_gene(session, parsed_args)
+            elif parsed_args.command == "high-impact":
+                cmd_high_impact(session, parsed_args)
 
 
 if __name__ == "__main__":

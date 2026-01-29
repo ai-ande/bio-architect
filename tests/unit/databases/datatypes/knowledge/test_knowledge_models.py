@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from src.databases.datatypes.knowledge import (
     Knowledge,
@@ -199,54 +200,54 @@ class TestKnowledge:
         assert knowledge.confidence == 1.0
 
     def test_knowledge_confidence_below_zero_raises(self):
-        with pytest.raises(ValueError, match="confidence must be between 0.0 and 1.0"):
-            Knowledge(
-                type=KnowledgeType.INSIGHT,
-                summary="Test",
-                content="Test content",
-                confidence=-0.1,
-            )
+        with pytest.raises(ValidationError, match="confidence must be between 0.0 and 1.0"):
+            Knowledge.model_validate({
+                "type": KnowledgeType.INSIGHT,
+                "summary": "Test",
+                "content": "Test content",
+                "confidence": -0.1,
+            })
 
     def test_knowledge_confidence_above_one_raises(self):
-        with pytest.raises(ValueError, match="confidence must be between 0.0 and 1.0"):
-            Knowledge(
-                type=KnowledgeType.INSIGHT,
-                summary="Test",
-                content="Test content",
-                confidence=1.1,
-            )
+        with pytest.raises(ValidationError, match="confidence must be between 0.0 and 1.0"):
+            Knowledge.model_validate({
+                "type": KnowledgeType.INSIGHT,
+                "summary": "Test",
+                "content": "Test content",
+                "confidence": 1.1,
+            })
 
     def test_knowledge_missing_required_type_raises(self):
-        with pytest.raises(ValueError):
-            Knowledge(
-                summary="Test",
-                content="Test content",
-                confidence=0.5,
-            )
+        with pytest.raises(ValidationError):
+            Knowledge.model_validate({
+                "summary": "Test",
+                "content": "Test content",
+                "confidence": 0.5,
+            })
 
     def test_knowledge_missing_required_summary_raises(self):
-        with pytest.raises(ValueError):
-            Knowledge(
-                type=KnowledgeType.INSIGHT,
-                content="Test content",
-                confidence=0.5,
-            )
+        with pytest.raises(ValidationError):
+            Knowledge.model_validate({
+                "type": KnowledgeType.INSIGHT,
+                "content": "Test content",
+                "confidence": 0.5,
+            })
 
     def test_knowledge_missing_required_content_raises(self):
-        with pytest.raises(ValueError):
-            Knowledge(
-                type=KnowledgeType.INSIGHT,
-                summary="Test",
-                confidence=0.5,
-            )
+        with pytest.raises(ValidationError):
+            Knowledge.model_validate({
+                "type": KnowledgeType.INSIGHT,
+                "summary": "Test",
+                "confidence": 0.5,
+            })
 
     def test_knowledge_missing_required_confidence_raises(self):
-        with pytest.raises(ValueError):
-            Knowledge(
-                type=KnowledgeType.INSIGHT,
-                summary="Test",
-                content="Test content",
-            )
+        with pytest.raises(ValidationError):
+            Knowledge.model_validate({
+                "type": KnowledgeType.INSIGHT,
+                "summary": "Test",
+                "content": "Test content",
+            })
 
 
 class TestKnowledgeLink:
@@ -308,25 +309,25 @@ class TestKnowledgeLink:
         assert link.link_type == LinkType.SUPPLEMENT
 
     def test_knowledge_link_missing_required_knowledge_id_raises(self):
-        with pytest.raises(ValueError):
-            KnowledgeLink(
-                link_type=LinkType.PROTOCOL,
-                target_id=uuid4(),
-            )
+        with pytest.raises(ValidationError):
+            KnowledgeLink.model_validate({
+                "link_type": LinkType.PROTOCOL,
+                "target_id": uuid4(),
+            })
 
     def test_knowledge_link_missing_required_link_type_raises(self):
-        with pytest.raises(ValueError):
-            KnowledgeLink(
-                knowledge_id=uuid4(),
-                target_id=uuid4(),
-            )
+        with pytest.raises(ValidationError):
+            KnowledgeLink.model_validate({
+                "knowledge_id": uuid4(),
+                "target_id": uuid4(),
+            })
 
     def test_knowledge_link_missing_required_target_id_raises(self):
-        with pytest.raises(ValueError):
-            KnowledgeLink(
-                knowledge_id=uuid4(),
-                link_type=LinkType.KNOWLEDGE,
-            )
+        with pytest.raises(ValidationError):
+            KnowledgeLink.model_validate({
+                "knowledge_id": uuid4(),
+                "link_type": LinkType.KNOWLEDGE,
+            })
 
 
 class TestKnowledgeTag:
@@ -361,16 +362,16 @@ class TestKnowledgeTag:
         assert t1.id != t2.id
 
     def test_knowledge_tag_missing_required_knowledge_id_raises(self):
-        with pytest.raises(ValueError):
-            KnowledgeTag(
-                tag="test-tag",
-            )
+        with pytest.raises(ValidationError):
+            KnowledgeTag.model_validate({
+                "tag": "test-tag",
+            })
 
     def test_knowledge_tag_missing_required_tag_raises(self):
-        with pytest.raises(ValueError):
-            KnowledgeTag(
-                knowledge_id=uuid4(),
-            )
+        with pytest.raises(ValidationError):
+            KnowledgeTag.model_validate({
+                "knowledge_id": uuid4(),
+            })
 
     def test_knowledge_tag_various_tags(self):
         """Test various tag formats."""

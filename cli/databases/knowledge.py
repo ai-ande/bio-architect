@@ -1,11 +1,16 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 """CLI for storing and querying knowledge entries."""
 
+import argcomplete
 import argparse
 import json
 import sys
 from typing import Optional
 from uuid import UUID
+
+from sqlalchemy import text
+from sqlmodel import Session, select
 
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.knowledge import (
@@ -16,7 +21,6 @@ from src.databases.datatypes.knowledge import (
     KnowledgeType,
     LinkType,
 )
-from src.databases.repositories.knowledge import KnowledgeRepository
 
 
 def format_knowledge(knowledge: Knowledge) -> str:
@@ -90,20 +94,17 @@ def link_to_dict(link: KnowledgeLink) -> dict:
     }
 
 
-def validate_link_target_exists(repo: KnowledgeRepository, link_type: LinkType, target_id: UUID) -> bool:
+def validate_link_target_exists(session: Session, link_type: LinkType, target_id: UUID) -> bool:
     """Check if a link target exists in the database.
 
     Args:
-        repo: KnowledgeRepository instance.
+        session: SQLModel Session instance.
         link_type: Type of link.
         target_id: UUID of the target entity.
 
     Returns:
         True if target exists, False otherwise.
     """
-    conn = repo._client.connection
-    cursor = conn.cursor()
-
     # Map link types to table names
     table_map = {
         LinkType.SNP: "snps",
@@ -118,8 +119,8 @@ def validate_link_target_exists(repo: KnowledgeRepository, link_type: LinkType, 
     if table is None:
         return False
 
-    cursor.execute(f"SELECT 1 FROM {table} WHERE id = ?", (str(target_id),))
-    return cursor.fetchone() is not None
+    result = session.exec(text(f"SELECT 1 FROM {table} WHERE id = :id"), {"id": str(target_id)})
+    return result.first() is not None
 
 
 def parse_knowledge_json(data: dict) -> tuple[Knowledge, list[KnowledgeTag], list[KnowledgeLink]]:
@@ -171,7 +172,7 @@ def parse_knowledge_json(data: dict) -> tuple[Knowledge, list[KnowledgeTag], lis
     return knowledge, tags, links
 
 
-def cmd_add(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_add(session: Session, args: argparse.Namespace) -> None:
     """Add a new knowledge entry from JSON."""
     # Read JSON from file or stdin
     if args.file:
@@ -199,7 +200,7 @@ def cmd_add(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
 
     # Validate links exist
     for link in links:
-        if not validate_link_target_exists(repo, link.link_type, link.target_id):
+        if not validate_link_target_exists(session, link.link_type, link.target_id):
             print(
                 f"Link target does not exist: {link.link_type.value} {link.target_id}",
                 file=sys.stderr,
@@ -207,11 +208,12 @@ def cmd_add(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
             sys.exit(1)
 
     # Insert knowledge, tags, and links
-    repo.insert_knowledge(knowledge)
+    session.add(knowledge)
     for tag in tags:
-        repo.insert_tag(tag)
+        session.add(tag)
     for link in links:
-        repo.insert_link(link)
+        session.add(link)
+    session.commit()
 
     if args.json:
         result = knowledge_to_dict(knowledge)
@@ -222,7 +224,7 @@ def cmd_add(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
         print(f"Added knowledge entry: {knowledge.id}")
 
 
-def cmd_get(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_get(session: Session, args: argparse.Namespace) -> None:
     """Get a single knowledge entry by ID."""
     try:
         knowledge_id = UUID(args.id)
@@ -230,13 +232,17 @@ def cmd_get(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
         print(f"Invalid knowledge ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    knowledge = repo.get_by_id(knowledge_id)
+    knowledge = session.get(Knowledge, knowledge_id)
     if knowledge is None:
         print(f"Knowledge not found: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    tags = repo.get_tags_by_knowledge(knowledge_id)
-    links = repo.get_links_by_knowledge(knowledge_id)
+    tags = session.exec(
+        select(KnowledgeTag).where(KnowledgeTag.knowledge_id == knowledge_id).order_by(KnowledgeTag.tag)
+    ).all()
+    links = session.exec(
+        select(KnowledgeLink).where(KnowledgeLink.knowledge_id == knowledge_id).order_by(KnowledgeLink.link_type)
+    ).all()
 
     if args.json:
         result = knowledge_to_dict(knowledge)
@@ -247,16 +253,21 @@ def cmd_get(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
         print(format_knowledge_detail(knowledge, tags, links))
 
 
-def cmd_list(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_list(session: Session, args: argparse.Namespace) -> None:
     """List active knowledge entries."""
-    entries = repo.get_active()
+    statement = select(Knowledge).where(Knowledge.status == KnowledgeStatus.ACTIVE)
+    entries = session.exec(statement).all()
 
     if args.json:
         result = []
         for entry in entries:
             entry_dict = knowledge_to_dict(entry)
-            tags = repo.get_tags_by_knowledge(entry.id)
-            links = repo.get_links_by_knowledge(entry.id)
+            tags = session.exec(
+                select(KnowledgeTag).where(KnowledgeTag.knowledge_id == entry.id)
+            ).all()
+            links = session.exec(
+                select(KnowledgeLink).where(KnowledgeLink.knowledge_id == entry.id)
+            ).all()
             entry_dict["tags"] = [tag_to_dict(t) for t in tags]
             entry_dict["links"] = [link_to_dict(l) for l in links]
             result.append(entry_dict)
@@ -271,24 +282,41 @@ def cmd_list(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
             print(format_knowledge(entry))
 
 
-def cmd_tag(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_tag(session: Session, args: argparse.Namespace) -> None:
     """Show knowledge entries by tag."""
-    entries = repo.get_by_tag(args.tag)
+    # Get knowledge IDs that have this tag
+    tag_results = session.exec(
+        select(KnowledgeTag.knowledge_id).where(KnowledgeTag.tag == args.tag).distinct()
+    ).all()
+
+    if not tag_results:
+        if args.json:
+            print(json.dumps([], indent=2))
+        else:
+            print(f"No knowledge entries found with tag: {args.tag}")
+        return
+
+    entries = []
+    for knowledge_id in tag_results:
+        knowledge = session.get(Knowledge, knowledge_id)
+        if knowledge:
+            entries.append(knowledge)
 
     if args.json:
         result = []
         for entry in entries:
             entry_dict = knowledge_to_dict(entry)
-            tags = repo.get_tags_by_knowledge(entry.id)
-            links = repo.get_links_by_knowledge(entry.id)
+            tags = session.exec(
+                select(KnowledgeTag).where(KnowledgeTag.knowledge_id == entry.id)
+            ).all()
+            links = session.exec(
+                select(KnowledgeLink).where(KnowledgeLink.knowledge_id == entry.id)
+            ).all()
             entry_dict["tags"] = [tag_to_dict(t) for t in tags]
             entry_dict["links"] = [link_to_dict(l) for l in links]
             result.append(entry_dict)
         print(json.dumps(result, indent=2))
     else:
-        if not entries:
-            print(f"No knowledge entries found with tag: {args.tag}")
-            return
         print(f"Knowledge entries with tag '{args.tag}':")
         print("ID\tType\tConfidence\tSummary")
         print("-" * 100)
@@ -296,7 +324,7 @@ def cmd_tag(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
             print(format_knowledge(entry))
 
 
-def cmd_linked(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_linked(session: Session, args: argparse.Namespace) -> None:
     """Show knowledge entries linked to a target."""
     try:
         link_type = LinkType(args.type)
@@ -311,22 +339,41 @@ def cmd_linked(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
         print(f"Invalid target ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    entries = repo.get_by_link(link_type, target_id)
+    # Get knowledge IDs linked to this target
+    link_results = session.exec(
+        select(KnowledgeLink.knowledge_id)
+        .where(KnowledgeLink.link_type == link_type, KnowledgeLink.target_id == target_id)
+        .distinct()
+    ).all()
+
+    if not link_results:
+        if args.json:
+            print(json.dumps([], indent=2))
+        else:
+            print(f"No knowledge entries linked to {args.type} {args.id}")
+        return
+
+    entries = []
+    for knowledge_id in link_results:
+        knowledge = session.get(Knowledge, knowledge_id)
+        if knowledge:
+            entries.append(knowledge)
 
     if args.json:
         result = []
         for entry in entries:
             entry_dict = knowledge_to_dict(entry)
-            tags = repo.get_tags_by_knowledge(entry.id)
-            links = repo.get_links_by_knowledge(entry.id)
+            tags = session.exec(
+                select(KnowledgeTag).where(KnowledgeTag.knowledge_id == entry.id)
+            ).all()
+            links = session.exec(
+                select(KnowledgeLink).where(KnowledgeLink.knowledge_id == entry.id)
+            ).all()
             entry_dict["tags"] = [tag_to_dict(t) for t in tags]
             entry_dict["links"] = [link_to_dict(l) for l in links]
             result.append(entry_dict)
         print(json.dumps(result, indent=2))
     else:
-        if not entries:
-            print(f"No knowledge entries linked to {args.type} {args.id}")
-            return
         print(f"Knowledge entries linked to {args.type} {args.id}:")
         print("ID\tType\tConfidence\tSummary")
         print("-" * 100)
@@ -334,7 +381,7 @@ def cmd_linked(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
             print(format_knowledge(entry))
 
 
-def cmd_supersede(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
+def cmd_supersede(session: Session, args: argparse.Namespace) -> None:
     """Supersede an existing knowledge entry."""
     try:
         old_id = UUID(args.id)
@@ -343,7 +390,7 @@ def cmd_supersede(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
         sys.exit(1)
 
     # Verify old knowledge exists
-    old_knowledge = repo.get_by_id(old_id)
+    old_knowledge = session.get(Knowledge, old_id)
     if old_knowledge is None:
         print(f"Knowledge not found: {args.id}", file=sys.stderr)
         sys.exit(1)
@@ -363,40 +410,49 @@ def cmd_supersede(repo: KnowledgeRepository, args: argparse.Namespace) -> None:
 
     # Validate links exist
     for link in links:
-        if not validate_link_target_exists(repo, link.link_type, link.target_id):
+        if not validate_link_target_exists(session, link.link_type, link.target_id):
             print(
                 f"Link target does not exist: {link.link_type.value} {link.target_id}",
                 file=sys.stderr,
             )
             sys.exit(1)
 
-    # Supersede the old entry
-    new_knowledge = repo.supersede(old_id, knowledge)
+    # Set supersedes reference
+    knowledge.supersedes_id = old_id
+
+    # Mark old entry as deprecated
+    old_knowledge.status = KnowledgeStatus.DEPRECATED
+
+    # Insert new knowledge
+    session.add(knowledge)
+    session.add(old_knowledge)
 
     # Insert tags and links for the new entry
+    new_tags = []
     for tag in tags:
-        # Update knowledge_id to the new entry
-        tag_with_new_id = KnowledgeTag(knowledge_id=new_knowledge.id, tag=tag.tag)
-        repo.insert_tag(tag_with_new_id)
+        new_tag = KnowledgeTag(knowledge_id=knowledge.id, tag=tag.tag)
+        session.add(new_tag)
+        new_tags.append(new_tag)
 
     new_links = []
     for link in links:
-        # Update knowledge_id to the new entry
-        link_with_new_id = KnowledgeLink(
-            knowledge_id=new_knowledge.id,
+        new_link = KnowledgeLink(
+            knowledge_id=knowledge.id,
             link_type=link.link_type,
             target_id=link.target_id,
         )
-        repo.insert_link(link_with_new_id)
-        new_links.append(link_with_new_id)
+        session.add(new_link)
+        new_links.append(new_link)
+
+    session.commit()
 
     if args.json:
-        result = knowledge_to_dict(new_knowledge)
-        result["tags"] = [tag_to_dict(KnowledgeTag(knowledge_id=new_knowledge.id, tag=t.tag)) for t in tags]
+        result = knowledge_to_dict(knowledge)
+        result["tags"] = [tag_to_dict(t) for t in new_tags]
         result["links"] = [link_to_dict(l) for l in new_links]
         print(json.dumps(result, indent=2))
     else:
-        print(f"Superseded knowledge entry {old_id} with new entry: {new_knowledge.id}")
+        print(f"Superseded knowledge entry {old_id} with new entry: {knowledge.id}")
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -446,6 +502,7 @@ def create_parser() -> argparse.ArgumentParser:
 def main(args: Optional[list[str]] = None) -> None:
     """Main entry point for knowledge CLI."""
     parser = create_parser()
+    argcomplete.autocomplete(parser)
     parsed_args = parser.parse_args(args)
 
     if parsed_args.command is None:
@@ -453,20 +510,19 @@ def main(args: Optional[list[str]] = None) -> None:
         sys.exit(1)
 
     with DatabaseClient() as client:
-        repo = KnowledgeRepository(client)
-
-        if parsed_args.command == "add":
-            cmd_add(repo, parsed_args)
-        elif parsed_args.command == "get":
-            cmd_get(repo, parsed_args)
-        elif parsed_args.command == "list":
-            cmd_list(repo, parsed_args)
-        elif parsed_args.command == "tag":
-            cmd_tag(repo, parsed_args)
-        elif parsed_args.command == "linked":
-            cmd_linked(repo, parsed_args)
-        elif parsed_args.command == "supersede":
-            cmd_supersede(repo, parsed_args)
+        with client.get_session() as session:
+            if parsed_args.command == "add":
+                cmd_add(session, parsed_args)
+            elif parsed_args.command == "get":
+                cmd_get(session, parsed_args)
+            elif parsed_args.command == "list":
+                cmd_list(session, parsed_args)
+            elif parsed_args.command == "tag":
+                cmd_tag(session, parsed_args)
+            elif parsed_args.command == "linked":
+                cmd_linked(session, parsed_args)
+            elif parsed_args.command == "supersede":
+                cmd_supersede(session, parsed_args)
 
 
 if __name__ == "__main__":

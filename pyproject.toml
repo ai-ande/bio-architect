@@ -4,8 +4,10 @@ version = "0.1.0"
 description = "Bio data management and analysis"
 requires-python = ">=3.11"
 dependencies = [
+    "argcomplete>=3.0",
     "pydantic>=2.0",
     "pyyaml>=6.0",
+    "sqlmodel>=0.0.22",
 ]
 
 [project.optional-dependencies]
@@ -14,12 +16,19 @@ dev = [
     "pytest-cov>=4.0",
 ]
 
+[project.scripts]
+bloodwork = "cli.databases.bloodwork:main"
+dna = "cli.databases.dna:main"
+knowledge = "cli.databases.knowledge:main"
+protocol = "cli.databases.protocol:main"
+supplements = "cli.databases.supplements:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src", "cli"]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,11 +1,12 @@
-"""Pydantic models for supplement label data."""
+"""SQLModel models for supplement label data."""
 
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from sqlalchemy import Column, JSON
+from sqlmodel import SQLModel, Field
 
 from .validators import IngredientCode
 
@@ -30,48 +31,52 @@ class IngredientType(str, Enum):
     OTHER = "other"
 
 
-class Ingredient(BaseModel):
-    """A unified ingredient model that can represent active, blend, or other ingredients."""
-
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    supplement_label_id: Optional[UUID] = Field(
-        None, description="FK to SupplementLabel (for active/other ingredients)"
-    )
-    blend_id: Optional[UUID] = Field(
-        None, description="FK to ProprietaryBlend (for blend ingredients)"
-    )
-    type: IngredientType = Field(..., description="Type of ingredient (active, blend, other)")
-    name: str = Field(..., description="Display name of the ingredient")
-    code: IngredientCode = Field(..., description="Standardized code for tracking")
-    amount: Optional[float] = Field(None, description="Amount per serving")
-    unit: Optional[str] = Field(None, description="Unit of measurement")
-    percent_dv: Optional[float] = Field(None, description="Percent daily value (active only)")
-    form: Optional[str] = Field(None, description="Specific form of the ingredient")
-
-
-class ProprietaryBlend(BaseModel):
-    """A proprietary blend containing multiple ingredients."""
-
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    supplement_label_id: UUID = Field(..., description="FK to SupplementLabel")
-    name: str = Field(..., description="Name of the blend")
-    total_amount: Optional[float] = Field(None, description="Total amount of the blend")
-    total_unit: Optional[str] = Field(None, description="Unit for total amount")
-
-
-class SupplementLabel(BaseModel):
+class SupplementLabel(SQLModel, table=True):
     """Complete supplement label data."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    source_file: Optional[str] = Field(None, description="Source file path")
-    created_at: datetime = Field(default_factory=datetime.now, description="Record creation time")
-    brand: str = Field(..., description="Brand/manufacturer name")
-    product_name: str = Field(..., description="Product name")
-    form: SupplementForm = Field(..., description="Physical form (capsule, powder, etc.)")
-    serving_size: str = Field(..., description="Serving size description")
-    servings_per_container: Optional[int] = Field(
-        None, description="Number of servings per container"
+    __tablename__ = "supplement_labels"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    source_file: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+    brand: str
+    product_name: str
+    form: SupplementForm
+    serving_size: str
+    servings_per_container: Optional[int] = None
+    suggested_use: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    allergen_info: Optional[str] = None
+
+
+class ProprietaryBlend(SQLModel, table=True):
+    """A proprietary blend containing multiple ingredients."""
+
+    __tablename__ = "proprietary_blends"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    supplement_label_id: UUID = Field(foreign_key="supplement_labels.id")
+    name: str
+    total_amount: Optional[float] = None
+    total_unit: Optional[str] = None
+
+
+class Ingredient(SQLModel, table=True):
+    """A unified ingredient model that can represent active, blend, or other ingredients."""
+
+    __tablename__ = "ingredients"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    supplement_label_id: Optional[UUID] = Field(
+        default=None, foreign_key="supplement_labels.id"
     )
-    suggested_use: Optional[str] = Field(None, description="Suggested usage instructions")
-    warnings: list[str] = Field(default_factory=list, description="Warning statements")
-    allergen_info: Optional[str] = Field(None, description="Allergen information")
+    blend_id: Optional[UUID] = Field(
+        default=None, foreign_key="proprietary_blends.id"
+    )
+    type: IngredientType
+    name: str
+    code: IngredientCode
+    amount: Optional[float] = None
+    unit: Optional[str] = None
+    percent_dv: Optional[float] = None
+    form: Optional[str] = None

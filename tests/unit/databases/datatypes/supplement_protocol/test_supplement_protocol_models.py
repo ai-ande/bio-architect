@@ -4,6 +4,7 @@ from datetime import date, datetime
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from src.databases.datatypes.supplement_protocol import (
     Frequency,
@@ -161,20 +162,20 @@ class TestProtocolSupplement:
         assert supp.instructions == "1 scoop"
 
     def test_supplement_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            ProtocolSupplement(
-                name="Test",
-                type=ProtocolSupplementType.SCHEDULED,
-                frequency=Frequency.DAILY,
-            )  # missing protocol_id
+        with pytest.raises(ValidationError):
+            ProtocolSupplement.model_validate({
+                "name": "Test",
+                "type": ProtocolSupplementType.SCHEDULED,
+                "frequency": Frequency.DAILY,
+            })  # missing protocol_id
 
     def test_supplement_missing_type_raises(self):
-        with pytest.raises(ValueError):
-            ProtocolSupplement(
-                protocol_id=uuid4(),
-                name="Test",
-                frequency=Frequency.DAILY,
-            )  # missing type
+        with pytest.raises(ValidationError):
+            ProtocolSupplement.model_validate({
+                "protocol_id": uuid4(),
+                "name": "Test",
+                "frequency": Frequency.DAILY,
+            })  # missing type
 
 
 class TestSupplementProtocol:
@@ -221,8 +222,8 @@ class TestSupplementProtocol:
         assert protocol.prescriber == "Dr. Smith"
 
     def test_protocol_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            SupplementProtocol()  # missing protocol_date
+        with pytest.raises(ValidationError):
+            SupplementProtocol.model_validate({})  # missing protocol_date
 
     def test_protocol_with_protein_goal(self):
         protocol = SupplementProtocol(

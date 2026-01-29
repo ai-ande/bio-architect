@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from src.databases.datatypes.supplement import (
     Ingredient,
@@ -30,90 +31,90 @@ class TestIngredientCodeValidation:
 
     def test_ingredient_accepts_valid_yaml_code(self):
         """Valid codes from YAML should be accepted."""
-        ingredient = Ingredient(
-            type=IngredientType.ACTIVE,
-            name="Zinc",
-            code="ZINC",
-            amount=30,
-            unit="mg",
-        )
+        ingredient = Ingredient.model_validate({
+            "type": IngredientType.ACTIVE,
+            "name": "Zinc",
+            "code": "ZINC",
+            "amount": 30,
+            "unit": "mg",
+        })
         assert ingredient.code == "ZINC"
 
     def test_ingredient_rejects_unknown_code(self):
         """Codes not in ingredient_codes.yaml should be rejected."""
-        with pytest.raises(ValueError, match="unknown ingredient code"):
-            Ingredient(
-                type=IngredientType.ACTIVE,
-                name="Custom Ingredient",
-                code="CUSTOM_INGREDIENT",
-                amount=100,
-                unit="mg",
-            )
+        with pytest.raises(ValidationError, match="unknown ingredient code"):
+            Ingredient.model_validate({
+                "type": IngredientType.ACTIVE,
+                "name": "Custom Ingredient",
+                "code": "CUSTOM_INGREDIENT",
+                "amount": 100,
+                "unit": "mg",
+            })
 
     def test_ingredient_rejects_lowercase_code(self):
         """Lowercase codes should be rejected."""
-        with pytest.raises(ValueError, match="must be uppercase"):
-            Ingredient(
-                type=IngredientType.ACTIVE,
-                name="Zinc",
-                code="zinc",
-                amount=30,
-                unit="mg",
-            )
+        with pytest.raises(ValidationError, match="must be uppercase"):
+            Ingredient.model_validate({
+                "type": IngredientType.ACTIVE,
+                "name": "Zinc",
+                "code": "zinc",
+                "amount": 30,
+                "unit": "mg",
+            })
 
     def test_ingredient_rejects_code_with_spaces(self):
         """Codes with spaces should be rejected."""
-        with pytest.raises(ValueError, match="must not contain spaces"):
-            Ingredient(
-                type=IngredientType.ACTIVE,
-                name="Vitamin A",
-                code="VITAMIN A",
-                amount=100,
-                unit="IU",
-            )
+        with pytest.raises(ValidationError, match="must not contain spaces"):
+            Ingredient.model_validate({
+                "type": IngredientType.ACTIVE,
+                "name": "Vitamin A",
+                "code": "VITAMIN A",
+                "amount": 100,
+                "unit": "IU",
+            })
 
     def test_ingredient_rejects_code_with_special_chars(self):
         """Codes with special characters (other than underscore) should be rejected."""
-        with pytest.raises(ValueError, match="invalid characters"):
-            Ingredient(
-                type=IngredientType.ACTIVE,
-                name="Test",
-                code="TEST-CODE",
-                amount=100,
-                unit="mg",
-            )
+        with pytest.raises(ValidationError, match="invalid characters"):
+            Ingredient.model_validate({
+                "type": IngredientType.ACTIVE,
+                "name": "Test",
+                "code": "TEST-CODE",
+                "amount": 100,
+                "unit": "mg",
+            })
 
     def test_ingredient_rejects_empty_code(self):
         """Empty codes should be rejected."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            Ingredient(
-                type=IngredientType.ACTIVE,
-                name="Test",
-                code="",
-                amount=100,
-                unit="mg",
-            )
+        with pytest.raises(ValidationError, match="cannot be empty"):
+            Ingredient.model_validate({
+                "type": IngredientType.ACTIVE,
+                "name": "Test",
+                "code": "",
+                "amount": 100,
+                "unit": "mg",
+            })
 
     def test_code_allows_numbers(self):
         """Codes with numbers should be valid."""
-        ingredient = Ingredient(
-            type=IngredientType.ACTIVE,
-            name="Vitamin B12",
-            code="VITAMIN_B12",
-            amount=1000,
-            unit="mcg",
-        )
+        ingredient = Ingredient.model_validate({
+            "type": IngredientType.ACTIVE,
+            "name": "Vitamin B12",
+            "code": "VITAMIN_B12",
+            "amount": 1000,
+            "unit": "mcg",
+        })
         assert ingredient.code == "VITAMIN_B12"
 
     def test_code_allows_leading_underscore_for_amino_acids(self):
         """L_ prefix for amino acids should be valid."""
-        ingredient = Ingredient(
-            type=IngredientType.ACTIVE,
-            name="L-Glutamine",
-            code="L_GLUTAMINE",
-            amount=500,
-            unit="mg",
-        )
+        ingredient = Ingredient.model_validate({
+            "type": IngredientType.ACTIVE,
+            "name": "L-Glutamine",
+            "code": "L_GLUTAMINE",
+            "amount": 500,
+            "unit": "mg",
+        })
         assert ingredient.code == "L_GLUTAMINE"
 
 
@@ -280,8 +281,8 @@ class TestProprietaryBlend:
 
     def test_blend_requires_supplement_label_id(self):
         """ProprietaryBlend requires supplement_label_id FK."""
-        with pytest.raises(ValueError):
-            ProprietaryBlend(name="Test Blend")
+        with pytest.raises(ValidationError):
+            ProprietaryBlend.model_validate({"name": "Test Blend"})
 
     def test_blend_is_flat_no_ingredients_list(self):
         """Verify ProprietaryBlend no longer has nested ingredients list."""
@@ -402,8 +403,12 @@ class TestSupplementLabel:
         assert label.source_file is None
 
     def test_label_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            SupplementLabel(brand="Test", product_name="Test", form=SupplementForm.CAPSULE)
+        with pytest.raises(ValidationError):
+            SupplementLabel.model_validate({
+                "brand": "Test",
+                "product_name": "Test",
+                "form": SupplementForm.CAPSULE,
+            })  # missing serving_size
 
     def test_label_is_flat_no_nested_lists(self):
         """Verify SupplementLabel no longer has nested ingredient/blend lists."""

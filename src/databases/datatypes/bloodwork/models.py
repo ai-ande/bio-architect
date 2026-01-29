@@ -1,11 +1,11 @@
-"""Pydantic models for bloodwork lab data."""
+"""SQLModel models for bloodwork lab data."""
 
 from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from sqlmodel import SQLModel, Field
 
 from .validators import BiomarkerCode
 
@@ -21,38 +21,40 @@ class Flag(str, Enum):
     PENDING = "pending"
 
 
-class Biomarker(BaseModel):
-    """A single biomarker measurement from a lab test."""
-
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    panel_id: UUID = Field(..., description="FK to Panel")
-    name: str = Field(..., description="Display name of the biomarker")
-    code: BiomarkerCode = Field(..., description="Standardized code for temporal tracking")
-    value: float = Field(..., description="Measured value")
-    unit: str = Field(..., description="Unit of measurement")
-    reference_low: Optional[float] = Field(
-        None, description="Low end of reference range"
-    )
-    reference_high: Optional[float] = Field(
-        None, description="High end of reference range"
-    )
-    flag: Flag = Field(Flag.NORMAL, description="Normal/high/low indicator")
-
-
-class Panel(BaseModel):
-    """A group of related biomarkers tested together."""
-
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    lab_report_id: UUID = Field(..., description="FK to LabReport")
-    name: str = Field(..., description="Panel name (e.g., 'CBC', 'Lipid Panel')")
-    comment: Optional[str] = Field(None, description="Lab comments about the panel")
-
-
-class LabReport(BaseModel):
+class LabReport(SQLModel, table=True):
     """A complete lab report containing multiple panels."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    lab_provider: str = Field(..., description="Lab company (e.g., 'LabCorp', 'Quest')")
-    collected_date: date = Field(..., description="Date sample was collected")
-    source_file: Optional[str] = Field(None, description="Source PDF filename")
-    created_at: datetime = Field(default_factory=datetime.now, description="Record creation timestamp")
+    __tablename__ = "lab_reports"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lab_provider: str
+    collected_date: date
+    source_file: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class Panel(SQLModel, table=True):
+    """A group of related biomarkers tested together."""
+
+    __tablename__ = "panels"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    lab_report_id: UUID = Field(foreign_key="lab_reports.id")
+    name: str
+    comment: Optional[str] = None
+
+
+class Biomarker(SQLModel, table=True):
+    """A single biomarker measurement from a lab test."""
+
+    __tablename__ = "biomarkers"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    panel_id: UUID = Field(foreign_key="panels.id")
+    name: str
+    code: BiomarkerCode
+    value: float
+    unit: str
+    reference_low: Optional[float] = None
+    reference_high: Optional[float] = None
+    flag: Flag = Flag.NORMAL

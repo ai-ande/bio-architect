@@ -1,11 +1,15 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 """CLI for querying supplement label data."""
 
+import argcomplete
 import argparse
 import json
 import sys
 from typing import Optional
 from uuid import UUID
+
+from sqlmodel import Session, or_, select
 
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.supplement import (
@@ -13,7 +17,6 @@ from src.databases.datatypes.supplement import (
     ProprietaryBlend,
     SupplementLabel,
 )
-from src.databases.repositories.supplement import SupplementRepository
 
 
 def format_label(label: SupplementLabel) -> str:
@@ -73,9 +76,10 @@ def blend_to_dict(blend: ProprietaryBlend) -> dict:
     }
 
 
-def cmd_list(repo: SupplementRepository, args: argparse.Namespace) -> None:
+def cmd_list(session: Session, args: argparse.Namespace) -> None:
     """List all supplement labels."""
-    labels = repo.get_all_labels()
+    statement = select(SupplementLabel).order_by(SupplementLabel.brand, SupplementLabel.product_name)
+    labels = session.exec(statement).all()
     if args.json:
         print(json.dumps([label_to_dict(l) for l in labels], indent=2))
     else:
@@ -88,7 +92,7 @@ def cmd_list(repo: SupplementRepository, args: argparse.Namespace) -> None:
             print(format_label(label))
 
 
-def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
+def cmd_label(session: Session, args: argparse.Namespace) -> None:
     """Show details for a single supplement label."""
     try:
         label_id = UUID(args.id)
@@ -96,13 +100,21 @@ def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
         print(f"Invalid label ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    label = repo.get_label_by_id(label_id)
+    label = session.get(SupplementLabel, label_id)
     if label is None:
         print(f"Label not found: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    ingredients = repo.get_ingredients_by_label(label_id)
-    blends = repo.get_blends_by_label(label_id)
+    ingredients = session.exec(
+        select(Ingredient)
+        .where(Ingredient.supplement_label_id == label_id)
+        .order_by(Ingredient.type, Ingredient.name)
+    ).all()
+    blends = session.exec(
+        select(ProprietaryBlend)
+        .where(ProprietaryBlend.supplement_label_id == label_id)
+        .order_by(ProprietaryBlend.name)
+    ).all()
 
     if args.json:
         label_dict = label_to_dict(label)
@@ -110,7 +122,9 @@ def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
         label_dict["blends"] = []
         for blend in blends:
             blend_dict = blend_to_dict(blend)
-            blend_ingredients = repo.get_ingredients_by_blend(blend.id)
+            blend_ingredients = session.exec(
+                select(Ingredient).where(Ingredient.blend_id == blend.id).order_by(Ingredient.name)
+            ).all()
             blend_dict["ingredients"] = [ingredient_to_dict(i) for i in blend_ingredients]
             label_dict["blends"].append(blend_dict)
         print(json.dumps(label_dict, indent=2))
@@ -135,7 +149,9 @@ def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
         for blend in blends:
             amount_str = f"{blend.total_amount} {blend.total_unit}" if blend.total_amount else ""
             print(f"Blend: {blend.name} {amount_str}")
-            blend_ingredients = repo.get_ingredients_by_blend(blend.id)
+            blend_ingredients = session.exec(
+                select(Ingredient).where(Ingredient.blend_id == blend.id).order_by(Ingredient.name)
+            ).all()
             print("Name\tAmount\tUnit\t%DV\tType")
             print("-" * 60)
             for ingredient in blend_ingredients:
@@ -143,28 +159,16 @@ def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
             print()
 
 
-def cmd_ingredient(repo: SupplementRepository, args: argparse.Namespace) -> None:
+def cmd_ingredient(session: Session, args: argparse.Namespace) -> None:
     """Show labels containing a given ingredient code."""
-    ingredients = repo.get_ingredient_by_code(args.code)
+    ingredients = session.exec(select(Ingredient).where(Ingredient.code == args.code)).all()
 
     if args.json:
-        # Get unique labels that contain this ingredient
-        label_ids = set()
-        for ing in ingredients:
-            if ing.supplement_label_id:
-                label_ids.add(ing.supplement_label_id)
-            elif ing.blend_id:
-                # Need to find the blend's label
-                blends = repo.get_blends_by_label(UUID("00000000-0000-0000-0000-000000000000"))  # Placeholder
-                # For blend ingredients, we'll include the ingredient info directly
-                pass
-
-        # Get all labels containing this ingredient
         result = []
         for ing in ingredients:
             ing_dict = ingredient_to_dict(ing)
             if ing.supplement_label_id:
-                label = repo.get_label_by_id(ing.supplement_label_id)
+                label = session.get(SupplementLabel, ing.supplement_label_id)
                 if label:
                     ing_dict["label"] = label_to_dict(label)
             result.append(ing_dict)
@@ -176,10 +180,10 @@ def cmd_ingredient(repo: SupplementRepository, args: argparse.Namespace) -> None
         print(f"Supplements containing {args.code}:")
         print("Brand\tProduct\tAmount\tUnit")
         print("-" * 80)
-        seen_labels = set()
+        seen_labels: set[UUID] = set()
         for ing in ingredients:
             if ing.supplement_label_id and ing.supplement_label_id not in seen_labels:
-                label = repo.get_label_by_id(ing.supplement_label_id)
+                label = session.get(SupplementLabel, ing.supplement_label_id)
                 if label:
                     amount_str = f"{ing.amount:.1f}" if ing.amount else "-"
                     unit_str = ing.unit if ing.unit else ""
@@ -187,9 +191,16 @@ def cmd_ingredient(repo: SupplementRepository, args: argparse.Namespace) -> None
                     seen_labels.add(ing.supplement_label_id)
 
 
-def cmd_search(repo: SupplementRepository, args: argparse.Namespace) -> None:
+def cmd_search(session: Session, args: argparse.Namespace) -> None:
     """Search supplement labels by brand or product name."""
-    labels = repo.search_labels(args.term)
+    search_term = f"%{args.term}%"
+    statement = select(SupplementLabel).where(
+        or_(
+            SupplementLabel.brand.like(search_term),
+            SupplementLabel.product_name.like(search_term),
+        )
+    )
+    labels = session.exec(statement).all()
 
     if args.json:
         print(json.dumps([label_to_dict(l) for l in labels], indent=2))
@@ -239,6 +250,7 @@ def create_parser() -> argparse.ArgumentParser:
 def main(args: Optional[list[str]] = None) -> None:
     """Main entry point for supplements CLI."""
     parser = create_parser()
+    argcomplete.autocomplete(parser)
     parsed_args = parser.parse_args(args)
 
     if parsed_args.command is None:
@@ -246,16 +258,15 @@ def main(args: Optional[list[str]] = None) -> None:
         sys.exit(1)
 
     with DatabaseClient() as client:
-        repo = SupplementRepository(client)
-
-        if parsed_args.command == "list":
-            cmd_list(repo, parsed_args)
-        elif parsed_args.command == "label":
-            cmd_label(repo, parsed_args)
-        elif parsed_args.command == "ingredient":
-            cmd_ingredient(repo, parsed_args)
-        elif parsed_args.command == "search":
-            cmd_search(repo, parsed_args)
+        with client.get_session() as session:
+            if parsed_args.command == "list":
+                cmd_list(session, parsed_args)
+            elif parsed_args.command == "label":
+                cmd_label(session, parsed_args)
+            elif parsed_args.command == "ingredient":
+                cmd_ingredient(session, parsed_args)
+            elif parsed_args.command == "search":
+                cmd_search(session, parsed_args)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from datetime import date, datetime
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from src.databases.datatypes.bloodwork import (
     Biomarker,
@@ -29,80 +30,80 @@ class TestBiomarkerCodeValidation:
     def test_biomarker_accepts_valid_yaml_code(self):
         """Valid codes from YAML should be accepted."""
         panel_id = uuid4()
-        biomarker = Biomarker(
-            panel_id=panel_id,
-            name="Glucose",
-            code="GLUCOSE",
-            value=95.0,
-            unit="mg/dL",
-        )
+        biomarker = Biomarker.model_validate({
+            "panel_id": panel_id,
+            "name": "Glucose",
+            "code": "GLUCOSE",
+            "value": 95.0,
+            "unit": "mg/dL",
+        })
         assert biomarker.code == "GLUCOSE"
 
     def test_biomarker_rejects_unknown_code(self):
         """Codes not in biomarker_codes.yaml should be rejected."""
-        with pytest.raises(ValueError, match="unknown biomarker code"):
-            Biomarker(
-                panel_id=uuid4(),
-                name="Custom Biomarker",
-                code="CUSTOM_BIOMARKER",
-                value=100.0,
-                unit="mg/dL",
-            )
+        with pytest.raises(ValidationError, match="unknown biomarker code"):
+            Biomarker.model_validate({
+                "panel_id": uuid4(),
+                "name": "Custom Biomarker",
+                "code": "CUSTOM_BIOMARKER",
+                "value": 100.0,
+                "unit": "mg/dL",
+            })
 
     def test_biomarker_rejects_lowercase_code(self):
         """Lowercase codes should be rejected."""
-        with pytest.raises(ValueError, match="must be uppercase"):
-            Biomarker(
-                panel_id=uuid4(),
-                name="Glucose",
-                code="glucose",
-                value=95.0,
-                unit="mg/dL",
-            )
+        with pytest.raises(ValidationError, match="must be uppercase"):
+            Biomarker.model_validate({
+                "panel_id": uuid4(),
+                "name": "Glucose",
+                "code": "glucose",
+                "value": 95.0,
+                "unit": "mg/dL",
+            })
 
     def test_biomarker_rejects_code_with_spaces(self):
         """Codes with spaces should be rejected."""
-        with pytest.raises(ValueError, match="must not contain spaces"):
-            Biomarker(
-                panel_id=uuid4(),
-                name="Total Cholesterol",
-                code="TOTAL CHOLESTEROL",
-                value=200.0,
-                unit="mg/dL",
-            )
+        with pytest.raises(ValidationError, match="must not contain spaces"):
+            Biomarker.model_validate({
+                "panel_id": uuid4(),
+                "name": "Total Cholesterol",
+                "code": "TOTAL CHOLESTEROL",
+                "value": 200.0,
+                "unit": "mg/dL",
+            })
 
     def test_biomarker_rejects_code_with_special_chars(self):
         """Codes with special characters (other than underscore) should be rejected."""
-        with pytest.raises(ValueError, match="invalid characters"):
-            Biomarker(
-                panel_id=uuid4(),
-                name="Test",
-                code="TEST-CODE",
-                value=100.0,
-                unit="mg/dL",
-            )
+        with pytest.raises(ValidationError, match="invalid characters"):
+            Biomarker.model_validate({
+                "panel_id": uuid4(),
+                "name": "Test",
+                "code": "TEST-CODE",
+                "value": 100.0,
+                "unit": "mg/dL",
+            })
 
     def test_biomarker_rejects_empty_code(self):
         """Empty codes should be rejected."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            Biomarker(
-                panel_id=uuid4(),
-                name="Test",
-                code="",
-                value=100.0,
-                unit="mg/dL",
-            )
+        with pytest.raises(ValidationError, match="cannot be empty"):
+            Biomarker.model_validate({
+                "panel_id": uuid4(),
+                "name": "Test",
+                "code": "",
+                "value": 100.0,
+                "unit": "mg/dL",
+            })
 
     def test_code_allows_numbers(self):
         """Codes with numbers should be valid."""
         panel_id = uuid4()
-        biomarker = Biomarker(
-            panel_id=panel_id,
-            name="Vitamin B12",
-            code="VITAMIN_B12",
-            value=500.0,
-            unit="pg/mL",
-        )
+        biomarker = Biomarker.model_validate({
+            "panel_id": panel_id,
+            "name": "Vitamin B12",
+            "code": "VITAMIN_B12",
+            "value": 500.0,
+            "unit": "pg/mL",
+        })
         assert biomarker.code == "VITAMIN_B12"
 
 
@@ -191,16 +192,16 @@ class TestBiomarker:
         assert biomarker.reference_high is None
 
     def test_biomarker_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            Biomarker(
-                panel_id=uuid4(), name="Glucose", code="GLUCOSE", value=95.0
-            )  # missing unit
+        with pytest.raises(ValidationError):
+            Biomarker.model_validate({
+                "panel_id": uuid4(), "name": "Glucose", "code": "GLUCOSE", "value": 95.0
+            })  # missing unit
 
     def test_biomarker_requires_panel_id(self):
-        with pytest.raises(ValueError):
-            Biomarker(
-                name="Glucose", code="GLUCOSE", value=95.0, unit="mg/dL"
-            )  # missing panel_id
+        with pytest.raises(ValidationError):
+            Biomarker.model_validate({
+                "name": "Glucose", "code": "GLUCOSE", "value": 95.0, "unit": "mg/dL"
+            })  # missing panel_id
 
     def test_biomarker_no_temporal_context_fields(self):
         """Verify temporal context fields were removed."""
@@ -230,8 +231,8 @@ class TestPanel:
         assert panel.comment == "Fasting sample"
 
     def test_panel_requires_lab_report_id(self):
-        with pytest.raises(ValueError):
-            Panel(name="CBC")  # missing lab_report_id
+        with pytest.raises(ValidationError):
+            Panel.model_validate({"name": "CBC"})  # missing lab_report_id
 
     def test_panel_is_flat_no_biomarkers_list(self):
         """Verify Panel does not have nested biomarkers list."""
@@ -270,8 +271,8 @@ class TestLabReport:
         assert report.source_file == "labcorp_2024.pdf"
 
     def test_report_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            LabReport(lab_provider="Quest")  # missing collected_date
+        with pytest.raises(ValidationError):
+            LabReport.model_validate({"lab_provider": "Quest"})  # missing collected_date
 
     def test_report_is_flat_no_panels_list(self):
         """Verify LabReport does not have nested panels list."""

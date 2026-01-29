@@ -1,11 +1,12 @@
-"""Pydantic models for Knowledge entries."""
+"""SQLModel models for Knowledge entries."""
 
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import field_validator
+from sqlmodel import SQLModel, Field
 
 
 class KnowledgeType(str, Enum):
@@ -35,26 +36,20 @@ class LinkType(str, Enum):
     KNOWLEDGE = "knowledge"
 
 
-class Knowledge(BaseModel):
+class Knowledge(SQLModel, table=True):
     """A knowledge entry storing insights, recommendations, or contraindications."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    type: KnowledgeType = Field(..., description="Type of knowledge entry")
-    status: KnowledgeStatus = Field(
-        default=KnowledgeStatus.ACTIVE, description="Status of the entry"
-    )
-    summary: str = Field(..., description="Brief summary of the knowledge")
-    content: str = Field(..., description="Full content/details of the knowledge")
-    confidence: float = Field(..., description="Confidence score from 0.0 to 1.0")
-    supersedes_id: Optional[UUID] = Field(
-        None, description="FK to Knowledge entry this supersedes"
-    )
-    supersession_reason: Optional[str] = Field(
-        None, description="Reason for superseding the previous entry"
-    )
-    created_at: datetime = Field(
-        default_factory=datetime.now, description="Record creation timestamp"
-    )
+    __tablename__ = "knowledge"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    type: KnowledgeType
+    status: KnowledgeStatus = KnowledgeStatus.ACTIVE
+    summary: str
+    content: str
+    confidence: float
+    supersedes_id: Optional[UUID] = Field(default=None, foreign_key="knowledge.id")
+    supersession_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)
 
     @field_validator("confidence")
     @classmethod
@@ -65,18 +60,22 @@ class Knowledge(BaseModel):
         return v
 
 
-class KnowledgeLink(BaseModel):
+class KnowledgeLink(SQLModel, table=True):
     """A link between a knowledge entry and another entity."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    knowledge_id: UUID = Field(..., description="FK to Knowledge")
-    link_type: LinkType = Field(..., description="Type of linked entity")
-    target_id: UUID = Field(..., description="UUID of the linked entity")
+    __tablename__ = "knowledge_links"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    knowledge_id: UUID = Field(foreign_key="knowledge.id")
+    link_type: LinkType
+    target_id: UUID  # Polymorphic reference, no FK constraint
 
 
-class KnowledgeTag(BaseModel):
+class KnowledgeTag(SQLModel, table=True):
     """A tag associated with a knowledge entry."""
 
-    id: UUID = Field(default_factory=uuid4, description="Unique identifier")
-    knowledge_id: UUID = Field(..., description="FK to Knowledge")
-    tag: str = Field(..., description="Tag value")
+    __tablename__ = "knowledge_tags"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    knowledge_id: UUID = Field(foreign_key="knowledge.id")
+    tag: str

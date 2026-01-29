@@ -1,15 +1,18 @@
 #!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
 """CLI for querying bloodwork data."""
 
+import argcomplete
 import argparse
 import json
 import sys
 from typing import Optional
 from uuid import UUID
 
+from sqlmodel import Session, select
+
 from src.databases.clients.sqlite import DatabaseClient
-from src.databases.datatypes.bloodwork import Biomarker, LabReport, Panel
-from src.databases.repositories.bloodwork import BloodworkRepository
+from src.databases.datatypes.bloodwork import Biomarker, Flag, LabReport, Panel
 
 
 def format_report(report: LabReport) -> str:
@@ -63,9 +66,10 @@ def biomarker_to_dict(biomarker: Biomarker) -> dict:
     }
 
 
-def cmd_list(repo: BloodworkRepository, args: argparse.Namespace) -> None:
+def cmd_list(session: Session, args: argparse.Namespace) -> None:
     """List all lab reports."""
-    reports = repo.get_all_reports()
+    statement = select(LabReport).order_by(LabReport.collected_date.desc())
+    reports = session.exec(statement).all()
     if args.json:
         print(json.dumps([report_to_dict(r) for r in reports], indent=2))
     else:
@@ -78,7 +82,7 @@ def cmd_list(repo: BloodworkRepository, args: argparse.Namespace) -> None:
             print(format_report(report))
 
 
-def cmd_report(repo: BloodworkRepository, args: argparse.Namespace) -> None:
+def cmd_report(session: Session, args: argparse.Namespace) -> None:
     """Show details for a single lab report."""
     try:
         report_id = UUID(args.id)
@@ -86,19 +90,19 @@ def cmd_report(repo: BloodworkRepository, args: argparse.Namespace) -> None:
         print(f"Invalid report ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    report = repo.get_report_by_id(report_id)
+    report = session.get(LabReport, report_id)
     if report is None:
         print(f"Report not found: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    panels = repo.get_panels_by_report(report_id)
+    panels = session.exec(select(Panel).where(Panel.lab_report_id == report_id)).all()
 
     if args.json:
         report_dict = report_to_dict(report)
         report_dict["panels"] = []
         for panel in panels:
             panel_dict = panel_to_dict(panel)
-            biomarkers = repo.get_biomarkers_by_panel(panel.id)
+            biomarkers = session.exec(select(Biomarker).where(Biomarker.panel_id == panel.id)).all()
             panel_dict["biomarkers"] = [biomarker_to_dict(b) for b in biomarkers]
             report_dict["panels"].append(panel_dict)
         print(json.dumps(report_dict, indent=2))
@@ -114,16 +118,25 @@ def cmd_report(repo: BloodworkRepository, args: argparse.Namespace) -> None:
                 print(f"Comment: {panel.comment}")
             print("Name\tValue\tUnit\tFlag\tRange\tDate")
             print("-" * 80)
-            biomarkers = repo.get_biomarkers_by_panel(panel.id)
+            biomarkers = session.exec(select(Biomarker).where(Biomarker.panel_id == panel.id)).all()
             for biomarker in biomarkers:
                 print(format_biomarker(biomarker, str(report.collected_date)))
             print()
 
 
-def cmd_biomarker(repo: BloodworkRepository, args: argparse.Namespace) -> None:
+def cmd_biomarker(session: Session, args: argparse.Namespace) -> None:
     """Show biomarker history for a code."""
     limit = args.limit if args.limit else 4
-    biomarkers = repo.get_biomarker_history(args.code, limit=limit)
+    # Join through panels and lab_reports to order by collected_date
+    statement = (
+        select(Biomarker)
+        .join(Panel, Biomarker.panel_id == Panel.id)
+        .join(LabReport, Panel.lab_report_id == LabReport.id)
+        .where(Biomarker.code == args.code)
+        .order_by(LabReport.collected_date.desc())
+        .limit(limit)
+    )
+    biomarkers = session.exec(statement).all()
 
     if args.json:
         print(json.dumps([biomarker_to_dict(b) for b in biomarkers], indent=2))
@@ -135,15 +148,13 @@ def cmd_biomarker(repo: BloodworkRepository, args: argparse.Namespace) -> None:
         print("Name\tValue\tUnit\tFlag\tRange\tDate")
         print("-" * 80)
         for biomarker in biomarkers:
-            # Get the date from the panel's report
-            # We need to join through panels to get collected_date
-            # For simplicity, we'll show "-" as date since we don't have it directly
             print(format_biomarker(biomarker))
 
 
-def cmd_flagged(repo: BloodworkRepository, args: argparse.Namespace) -> None:
+def cmd_flagged(session: Session, args: argparse.Namespace) -> None:
     """Show biomarkers with abnormal flags."""
-    biomarkers = repo.get_flagged_biomarkers()
+    statement = select(Biomarker).where(Biomarker.flag != Flag.NORMAL)
+    biomarkers = session.exec(statement).all()
 
     if args.json:
         print(json.dumps([biomarker_to_dict(b) for b in biomarkers], indent=2))
@@ -158,9 +169,28 @@ def cmd_flagged(repo: BloodworkRepository, args: argparse.Namespace) -> None:
             print(format_biomarker(biomarker))
 
 
-def cmd_recent(repo: BloodworkRepository, args: argparse.Namespace) -> None:
+def cmd_recent(session: Session, args: argparse.Namespace) -> None:
     """Show most recent value for each biomarker."""
-    biomarkers = repo.get_recent_biomarkers()
+    # Get all unique biomarker codes, then get the most recent for each
+    # This is a simplified approach - get all biomarkers ordered by date
+    statement = (
+        select(Biomarker)
+        .join(Panel, Biomarker.panel_id == Panel.id)
+        .join(LabReport, Panel.lab_report_id == LabReport.id)
+        .order_by(LabReport.collected_date.desc())
+    )
+    all_biomarkers = session.exec(statement).all()
+
+    # Keep only the most recent for each code
+    seen_codes: set[str] = set()
+    biomarkers: list[Biomarker] = []
+    for b in all_biomarkers:
+        if b.code not in seen_codes:
+            seen_codes.add(b.code)
+            biomarkers.append(b)
+
+    # Sort by code for consistent output
+    biomarkers.sort(key=lambda b: b.code)
 
     if args.json:
         print(json.dumps([biomarker_to_dict(b) for b in biomarkers], indent=2))
@@ -215,6 +245,7 @@ def create_parser() -> argparse.ArgumentParser:
 def main(args: Optional[list[str]] = None) -> None:
     """Main entry point for bloodwork CLI."""
     parser = create_parser()
+    argcomplete.autocomplete(parser)
     parsed_args = parser.parse_args(args)
 
     if parsed_args.command is None:
@@ -222,18 +253,17 @@ def main(args: Optional[list[str]] = None) -> None:
         sys.exit(1)
 
     with DatabaseClient() as client:
-        repo = BloodworkRepository(client)
-
-        if parsed_args.command == "list":
-            cmd_list(repo, parsed_args)
-        elif parsed_args.command == "report":
-            cmd_report(repo, parsed_args)
-        elif parsed_args.command == "biomarker":
-            cmd_biomarker(repo, parsed_args)
-        elif parsed_args.command == "flagged":
-            cmd_flagged(repo, parsed_args)
-        elif parsed_args.command == "recent":
-            cmd_recent(repo, parsed_args)
+        with client.get_session() as session:
+            if parsed_args.command == "list":
+                cmd_list(session, parsed_args)
+            elif parsed_args.command == "report":
+                cmd_report(session, parsed_args)
+            elif parsed_args.command == "biomarker":
+                cmd_biomarker(session, parsed_args)
+            elif parsed_args.command == "flagged":
+                cmd_flagged(session, parsed_args)
+            elif parsed_args.command == "recent":
+                cmd_recent(session, parsed_args)
 
 
 if __name__ == "__main__":

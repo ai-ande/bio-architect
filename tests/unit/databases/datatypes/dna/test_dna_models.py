@@ -4,6 +4,7 @@ from datetime import date, datetime
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from src.databases.datatypes.dna import (
     DnaTest,
@@ -148,42 +149,42 @@ class TestSnp:
         assert snp.magnitude == 10.0
 
     def test_snp_magnitude_below_zero_raises(self):
-        with pytest.raises(ValueError, match="magnitude must be between 0 and 10"):
-            Snp(
-                dna_test_id=uuid4(),
-                rsid="rs1234",
-                genotype="AA",
-                magnitude=-0.1,
-                gene="TEST",
-            )
+        with pytest.raises(ValidationError, match="magnitude must be between 0 and 10"):
+            Snp.model_validate({
+                "dna_test_id": uuid4(),
+                "rsid": "rs1234",
+                "genotype": "AA",
+                "magnitude": -0.1,
+                "gene": "TEST",
+            })
 
     def test_snp_magnitude_above_ten_raises(self):
-        with pytest.raises(ValueError, match="magnitude must be between 0 and 10"):
-            Snp(
-                dna_test_id=uuid4(),
-                rsid="rs1234",
-                genotype="AA",
-                magnitude=10.1,
-                gene="TEST",
-            )
+        with pytest.raises(ValidationError, match="magnitude must be between 0 and 10"):
+            Snp.model_validate({
+                "dna_test_id": uuid4(),
+                "rsid": "rs1234",
+                "genotype": "AA",
+                "magnitude": 10.1,
+                "gene": "TEST",
+            })
 
     def test_snp_requires_dna_test_id(self):
-        with pytest.raises(ValueError):
-            Snp(
-                rsid="rs1234",
-                genotype="AA",
-                magnitude=1.0,
-                gene="TEST",
-            )  # missing dna_test_id
+        with pytest.raises(ValidationError):
+            Snp.model_validate({
+                "rsid": "rs1234",
+                "genotype": "AA",
+                "magnitude": 1.0,
+                "gene": "TEST",
+            })  # missing dna_test_id
 
     def test_snp_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            Snp(
-                dna_test_id=uuid4(),
-                rsid="rs1234",
-                genotype="AA",
-                magnitude=1.0,
-            )  # missing gene
+        with pytest.raises(ValidationError):
+            Snp.model_validate({
+                "dna_test_id": uuid4(),
+                "rsid": "rs1234",
+                "genotype": "AA",
+                "magnitude": 1.0,
+            })  # missing gene
 
 
 class TestDnaTest:
@@ -240,25 +241,25 @@ class TestDnaTest:
         assert test.source == "AncestryDNA"
 
     def test_dna_test_missing_required_field_raises(self):
-        with pytest.raises(ValueError):
-            DnaTest(
-                source="23andMe",
-                collected_date=date(2023, 6, 15),
-            )  # missing source_file
+        with pytest.raises(ValidationError):
+            DnaTest.model_validate({
+                "source": "23andMe",
+                "collected_date": date(2023, 6, 15),
+            })  # missing source_file
 
     def test_dna_test_missing_collected_date_raises(self):
-        with pytest.raises(ValueError):
-            DnaTest(
-                source="23andMe",
-                source_file="promethease_export.txt",
-            )  # missing collected_date
+        with pytest.raises(ValidationError):
+            DnaTest.model_validate({
+                "source": "23andMe",
+                "source_file": "promethease_export.txt",
+            })  # missing collected_date
 
     def test_dna_test_missing_source_raises(self):
-        with pytest.raises(ValueError):
-            DnaTest(
-                collected_date=date(2023, 6, 15),
-                source_file="promethease_export.txt",
-            )  # missing source
+        with pytest.raises(ValidationError):
+            DnaTest.model_validate({
+                "collected_date": date(2023, 6, 15),
+                "source_file": "promethease_export.txt",
+            })  # missing source
 
     def test_dna_test_is_flat_no_snps_list(self):
         """Verify DnaTest does not have nested SNPs list."""
