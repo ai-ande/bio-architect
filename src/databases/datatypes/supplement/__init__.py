@@ -1,10 +1,8 @@
 """Supplement label models."""
 
 from .models import (
-    ActiveIngredient,
-    BlendIngredient,
-    IngredientBase,
-    OtherIngredient,
+    Ingredient,
+    IngredientType,
     ProprietaryBlend,
     SupplementForm,
     SupplementLabel,
@@ -12,11 +10,9 @@ from .models import (
 from .validators import VALID_INGREDIENT_CODES, IngredientCode
 
 __all__ = [
-    "ActiveIngredient",
-    "BlendIngredient",
-    "IngredientBase",
+    "Ingredient",
     "IngredientCode",
-    "OtherIngredient",
+    "IngredientType",
     "ProprietaryBlend",
     "SupplementForm",
     "SupplementLabel",
