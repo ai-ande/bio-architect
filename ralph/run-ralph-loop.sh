@@ -5,7 +5,7 @@
 set -e
 
 MAX_ITERATIONS=${1:-30}
-SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/ralph"
+SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
@@ -96,8 +96,8 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   OUTPUT=$(cat "$TEMP_OUTPUT")
   rm -f "$TEMP_OUTPUT" "$FIFO"
 
-  # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
+  # Check for completion signal (only in the actual result, not verbose output)
+  if echo "$RESULT_TEXT" | grep -q "<promise>COMPLETE</promise>"; then
     echo ""
     echo "Ralph completed all tasks!"
     echo "Completed at iteration $i of $MAX_ITERATIONS"
