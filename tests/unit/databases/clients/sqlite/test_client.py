@@ -165,6 +165,76 @@ class TestDatabaseClientSchema:
                 assert count == 0, f"Table {table} should be empty"
 
 
+class TestDatabaseClientAutoInit:
+    """Tests for automatic schema initialization."""
+
+    def test_auto_init_schema_enabled_by_default(self, tmp_path):
+        """Test that schema is auto-initialized by default when engine is accessed."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path)
+        _ = client.engine  # Access engine to trigger initialization
+
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='lab_reports'")
+            )
+            tables = result.fetchall()
+
+        assert len(tables) == 1
+        client.close()
+
+    def test_auto_init_schema_can_be_disabled(self, tmp_path):
+        """Test that auto_init_schema=False skips schema creation."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path, auto_init_schema=False)
+        _ = client.engine  # Access engine
+
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table'")
+            )
+            tables = result.fetchall()
+
+        assert len(tables) == 0  # No tables created
+        client.close()
+
+    def test_init_schema_can_still_be_called_manually(self, tmp_path):
+        """Test that init_schema() can be called after disabling auto-init."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path, auto_init_schema=False)
+        _ = client.engine  # Access engine
+        client.init_schema()  # Manual call
+
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            )
+            count = result.fetchone()[0]
+
+        assert count == 13  # All tables created
+        client.close()
+
+    def test_schema_only_initialized_once(self, tmp_path):
+        """Test that accessing engine multiple times only initializes schema once."""
+        db_path = tmp_path / "test.db"
+        client = DatabaseClient(db_path=db_path)
+
+        # Access engine multiple times
+        _ = client.engine
+        _ = client.engine
+        _ = client.engine
+
+        # Schema should still only have 13 tables (not duplicated)
+        with client.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            )
+            count = result.fetchone()[0]
+
+        assert count == 13
+        client.close()
+
+
 class TestForeignKeyConstraints:
     """Tests for foreign key constraint enforcement."""
 

@@ -27,14 +27,18 @@ def _enable_foreign_keys(dbapi_connection, connection_record):
 class DatabaseClient:
     """SQLite database client for Bio-Architect health data."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Optional[Path] = None, auto_init_schema: bool = True):
         """Initialize database client.
 
         Args:
             db_path: Path to SQLite database file. Defaults to data/databases/sqlite/bio.db
+            auto_init_schema: Whether to automatically initialize schema when engine is created.
+                             Defaults to True. Set to False for testing scenarios.
         """
         self.db_path = db_path or DEFAULT_DB_PATH
         self._engine: Optional[Engine] = None
+        self._auto_init_schema = auto_init_schema
+        self._schema_initialized = False
 
     @property
     def engine(self) -> Engine:
@@ -47,11 +51,22 @@ class DatabaseClient:
             # Enable foreign keys for all connections
             event.listen(self._engine, "connect", _enable_foreign_keys)
 
+            # Auto-initialize schema if enabled
+            if self._auto_init_schema and not self._schema_initialized:
+                self.init_schema()
+
         return self._engine
 
     def init_schema(self) -> None:
-        """Create all database tables from SQLModel metadata."""
-        SQLModel.metadata.create_all(self.engine)
+        """Create all database tables from SQLModel metadata.
+
+        This method is idempotent - calling it multiple times is safe
+        and will only create tables that don't already exist.
+        """
+        # Use _engine directly if available to avoid recursion from engine property
+        engine = self._engine if self._engine else self.engine
+        SQLModel.metadata.create_all(engine)
+        self._schema_initialized = True
 
     def get_session(self) -> Session:
         """Get a new database session.
