@@ -1,21 +1,17 @@
 """Supplement protocol models."""
 
 from .models import (
-    DailySchedule,
     Frequency,
-    LifestyleNotes,
-    OwnSupplement,
-    ScheduledSupplement,
+    ProtocolSupplement,
+    ProtocolSupplementType,
     SupplementProtocol,
 )
 from .validators import SupplementCode
 
 __all__ = [
-    "DailySchedule",
     "Frequency",
-    "LifestyleNotes",
-    "OwnSupplement",
-    "ScheduledSupplement",
+    "ProtocolSupplement",
+    "ProtocolSupplementType",
     "SupplementCode",
     "SupplementProtocol",
 ]
