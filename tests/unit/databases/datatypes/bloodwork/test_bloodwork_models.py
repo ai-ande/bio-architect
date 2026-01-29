@@ -38,17 +38,16 @@ class TestBiomarkerCodeValidation:
         )
         assert biomarker.code == "GLUCOSE"
 
-    def test_biomarker_accepts_valid_custom_code(self):
-        """Custom codes following format rules should be accepted."""
-        panel_id = uuid4()
-        biomarker = Biomarker(
-            panel_id=panel_id,
-            name="Custom Biomarker",
-            code="CUSTOM_BIOMARKER",
-            value=100.0,
-            unit="mg/dL",
-        )
-        assert biomarker.code == "CUSTOM_BIOMARKER"
+    def test_biomarker_rejects_unknown_code(self):
+        """Codes not in biomarker_codes.yaml should be rejected."""
+        with pytest.raises(ValueError, match="unknown biomarker code"):
+            Biomarker(
+                panel_id=uuid4(),
+                name="Custom Biomarker",
+                code="CUSTOM_BIOMARKER",
+                value=100.0,
+                unit="mg/dL",
+            )
 
     def test_biomarker_rejects_lowercase_code(self):
         """Lowercase codes should be rejected."""

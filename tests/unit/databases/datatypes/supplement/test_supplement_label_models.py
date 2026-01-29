@@ -39,16 +39,16 @@ class TestIngredientCodeValidation:
         )
         assert ingredient.code == "ZINC"
 
-    def test_ingredient_accepts_valid_custom_code(self):
-        """Custom codes following format rules should be accepted."""
-        ingredient = Ingredient(
-            type=IngredientType.ACTIVE,
-            name="Custom Ingredient",
-            code="CUSTOM_INGREDIENT",
-            amount=100,
-            unit="mg",
-        )
-        assert ingredient.code == "CUSTOM_INGREDIENT"
+    def test_ingredient_rejects_unknown_code(self):
+        """Codes not in ingredient_codes.yaml should be rejected."""
+        with pytest.raises(ValueError, match="unknown ingredient code"):
+            Ingredient(
+                type=IngredientType.ACTIVE,
+                name="Custom Ingredient",
+                code="CUSTOM_INGREDIENT",
+                amount=100,
+                unit="mg",
+            )
 
     def test_ingredient_rejects_lowercase_code(self):
         """Lowercase codes should be rejected."""
@@ -206,14 +206,14 @@ class TestIngredient:
         """Proprietary blends may not disclose individual amounts."""
         ingredient = Ingredient(
             type=IngredientType.BLEND,
-            name="Vidanga (Embelia ribes) (fruit)",
-            code="VIDANGA",
-            form="fruit",
+            name="Valerian (Valeriana officinalis) (root)",
+            code="VALERIAN",
+            form="root",
         )
-        assert ingredient.name == "Vidanga (Embelia ribes) (fruit)"
+        assert ingredient.name == "Valerian (Valeriana officinalis) (root)"
         assert ingredient.amount is None
         assert ingredient.unit is None
-        assert ingredient.form == "fruit"
+        assert ingredient.form == "root"
         assert ingredient.type == IngredientType.BLEND
 
     def test_create_other_ingredient(self):
@@ -240,8 +240,8 @@ class TestIngredient:
         blend_id = UUID("12345678-1234-1234-1234-123456789012")
         ingredient = Ingredient(
             type=IngredientType.BLEND,
-            name="Vidanga",
-            code="VIDANGA",
+            name="Valerian",
+            code="VALERIAN",
             blend_id=blend_id,
         )
         assert ingredient.blend_id == blend_id
