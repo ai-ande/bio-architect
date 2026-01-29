@@ -396,6 +396,162 @@ class TestGetSnpsByGene:
         assert result[0].rsid == "rs4680"
 
 
+class TestGetAllTests:
+    """Tests for get_all_tests method."""
+
+    def test_get_all_tests_returns_list(self, repository):
+        """get_all_tests returns a list."""
+        result = repository.get_all_tests()
+        assert isinstance(result, list)
+
+    def test_get_all_tests_empty_returns_empty_list(self, repository):
+        """get_all_tests returns empty list when no tests."""
+        result = repository.get_all_tests()
+        assert result == []
+
+    def test_get_all_tests_returns_all_tests(self, repository):
+        """get_all_tests returns all tests."""
+        test1 = DnaTest(
+            id=uuid4(),
+            source="23andMe",
+            collected_date=date(2024, 1, 1),
+            source_file="test1.txt",
+        )
+        test2 = DnaTest(
+            id=uuid4(),
+            source="AncestryDNA",
+            collected_date=date(2024, 2, 1),
+            source_file="test2.txt",
+        )
+        repository.insert_test(test1)
+        repository.insert_test(test2)
+        result = repository.get_all_tests()
+        assert len(result) == 2
+
+    def test_get_all_tests_ordered_by_date_desc(self, repository):
+        """get_all_tests returns tests ordered by collected_date descending."""
+        test1 = DnaTest(
+            id=uuid4(),
+            source="23andMe",
+            collected_date=date(2024, 1, 1),
+            source_file="test1.txt",
+        )
+        test2 = DnaTest(
+            id=uuid4(),
+            source="AncestryDNA",
+            collected_date=date(2024, 6, 1),
+            source_file="test2.txt",
+        )
+        repository.insert_test(test1)
+        repository.insert_test(test2)
+        result = repository.get_all_tests()
+        assert result[0].source == "AncestryDNA"
+        assert result[1].source == "23andMe"
+
+
+class TestGetHighImpactSnps:
+    """Tests for get_high_impact_snps method."""
+
+    def test_get_high_impact_snps_returns_list(self, repository):
+        """get_high_impact_snps returns a list."""
+        result = repository.get_high_impact_snps()
+        assert isinstance(result, list)
+
+    def test_get_high_impact_snps_empty_returns_empty_list(self, repository):
+        """get_high_impact_snps returns empty list when no SNPs."""
+        result = repository.get_high_impact_snps()
+        assert result == []
+
+    def test_get_high_impact_snps_filters_by_magnitude(self, repository, sample_test):
+        """get_high_impact_snps returns only SNPs with magnitude >= 3."""
+        repository.insert_test(sample_test)
+        high_snp = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs1111111",
+            genotype="AA",
+            magnitude=4.0,
+            repute=Repute.BAD,
+            gene="MTHFR",
+        )
+        low_snp = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs2222222",
+            genotype="GG",
+            magnitude=1.5,
+            repute=None,
+            gene="COMT",
+        )
+        repository.insert_snp(high_snp)
+        repository.insert_snp(low_snp)
+        result = repository.get_high_impact_snps()
+        assert len(result) == 1
+        assert result[0].rsid == "rs1111111"
+
+    def test_get_high_impact_snps_includes_exact_threshold(self, repository, sample_test):
+        """get_high_impact_snps includes SNPs with exactly magnitude 3."""
+        repository.insert_test(sample_test)
+        snp = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs1111111",
+            genotype="AA",
+            magnitude=3.0,
+            repute=None,
+            gene="MTHFR",
+        )
+        repository.insert_snp(snp)
+        result = repository.get_high_impact_snps()
+        assert len(result) == 1
+
+    def test_get_high_impact_snps_ordered_by_magnitude_desc(self, repository, sample_test):
+        """get_high_impact_snps returns SNPs ordered by magnitude descending."""
+        repository.insert_test(sample_test)
+        snp1 = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs1111111",
+            genotype="AA",
+            magnitude=4.0,
+            repute=None,
+            gene="MTHFR",
+        )
+        snp2 = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs2222222",
+            genotype="GG",
+            magnitude=7.0,
+            repute=Repute.BAD,
+            gene="COMT",
+        )
+        repository.insert_snp(snp1)
+        repository.insert_snp(snp2)
+        result = repository.get_high_impact_snps()
+        assert len(result) == 2
+        assert result[0].magnitude == 7.0
+        assert result[1].magnitude == 4.0
+
+    def test_get_high_impact_snps_custom_threshold(self, repository, sample_test):
+        """get_high_impact_snps accepts custom minimum magnitude."""
+        repository.insert_test(sample_test)
+        snp = Snp(
+            id=uuid4(),
+            dna_test_id=sample_test.id,
+            rsid="rs1111111",
+            genotype="AA",
+            magnitude=5.0,
+            repute=None,
+            gene="MTHFR",
+        )
+        repository.insert_snp(snp)
+        result = repository.get_high_impact_snps(min_magnitude=6.0)
+        assert len(result) == 0
+        result = repository.get_high_impact_snps(min_magnitude=5.0)
+        assert len(result) == 1
+
+
 class TestEdgeCases:
     """Edge case tests."""
 

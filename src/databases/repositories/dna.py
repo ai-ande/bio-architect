@@ -97,13 +97,7 @@ class DnaRepository:
         row = cursor.fetchone()
         if row is None:
             return None
-        return DnaTest(
-            id=UUID(row["id"]),
-            source=row["source"],
-            collected_date=date.fromisoformat(row["collected_date"]),
-            source_file=row["source_file"],
-            created_at=datetime.fromisoformat(row["created_at"]),
-        )
+        return self._row_to_test(row)
 
     def get_snps_by_test(self, test_id: UUID) -> list[Snp]:
         """Get all SNPs for a DNA test.
@@ -172,6 +166,64 @@ class DnaRepository:
         )
         rows = cursor.fetchall()
         return [self._row_to_snp(row) for row in rows]
+
+    def get_all_tests(self) -> list[DnaTest]:
+        """Get all DNA tests.
+
+        Returns:
+            List of all DnaTest models.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, source, collected_date, source_file, created_at
+            FROM dna_tests
+            ORDER BY collected_date DESC
+            """
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_test(row) for row in rows]
+
+    def get_high_impact_snps(self, min_magnitude: float = 3.0) -> list[Snp]:
+        """Get SNPs with magnitude at or above threshold.
+
+        Args:
+            min_magnitude: Minimum magnitude threshold. Defaults to 3.0.
+
+        Returns:
+            List of Snp models with magnitude >= min_magnitude.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, dna_test_id, rsid, genotype, magnitude, repute, gene
+            FROM snps
+            WHERE magnitude >= ?
+            ORDER BY magnitude DESC
+            """,
+            (min_magnitude,),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_snp(row) for row in rows]
+
+    def _row_to_test(self, row) -> DnaTest:
+        """Convert a database row to a DnaTest model.
+
+        Args:
+            row: SQLite Row object.
+
+        Returns:
+            DnaTest model.
+        """
+        return DnaTest(
+            id=UUID(row["id"]),
+            source=row["source"],
+            collected_date=date.fromisoformat(row["collected_date"]),
+            source_file=row["source_file"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
 
     def _row_to_snp(self, row) -> Snp:
         """Convert a database row to a Snp model.
