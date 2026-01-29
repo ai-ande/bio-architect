@@ -13,8 +13,12 @@ from src.databases.datatypes.supplement_protocol.models import SupplementProtoco
 from src.databases.datatypes.dna.models import DnaTest, Snp  # noqa: F401
 from src.databases.datatypes.knowledge.models import Knowledge, KnowledgeLink, KnowledgeTag  # noqa: F401
 
-# Default database path
-DEFAULT_DB_PATH = Path("data/databases/sqlite/bio.db")
+# Project root computed from this file's location
+# client.py is at src/databases/clients/sqlite/client.py (5 levels deep)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+# Default database path (absolute, relative to project root)
+DEFAULT_DB_PATH = _PROJECT_ROOT / "data/databases/sqlite/bio.db"
 
 
 def _enable_foreign_keys(dbapi_connection, connection_record):
