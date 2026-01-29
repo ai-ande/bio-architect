@@ -1,0 +1,201 @@
+{
+  "main": {
+    "id": "46f608ec94ac32c8",
+    "type": "split",
+    "children": [
+      {
+        "id": "78edceb92d9bd0e7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "97c933156d943110",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Planning/System Plan/Bio-Architect System Plan - Database.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Bio-Architect System Plan - Database"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ffe26cf48e9a62db",
+    "type": "split",
+    "children": [
+      {
+        "id": "47df33b4ce3a247d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "90b3600df21747ae",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "237f1ea26b8b5dc2",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "bb37d43c32add2a6",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 377.5
+  },
+  "right": {
+    "id": "b4a8bd72ce894f67",
+    "type": "split",
+    "children": [
+      {
+        "id": "8bccdf6b2af6ea42",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "73e9ded0e10d835b",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Planning/System Plan/Bio-Architect System Plan - Database.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Bio-Architect System Plan - Database"
+            }
+          },
+          {
+            "id": "0ea0e4d694a1f05f",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Planning/System Plan/Bio-Architect System Plan - Database.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Bio-Architect System Plan - Database"
+            }
+          },
+          {
+            "id": "ce23437c1f0e67dd",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "4d647499711eaab2",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "77b1e6812e04c52c",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Planning/System Plan/Bio-Architect System Plan - Database.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Bio-Architect System Plan - Database"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "97c933156d943110",
+  "lastOpenFiles": [
+    "Planning/System Plan/Bio-Architect System Plan - Ralph PRD.md",
+    "Planning/System Plan/Bio-Architect System Plan - Database.md",
+    "Planning/System Plan/Bio-Architect Skill.md",
+    "Planning/System Plan - Code/Database/Models/Bloodwork Models.md",
+    "Planning/System Plan - Code/Database/Models/Supplements.md",
+    "Planning/System Plan - Code/Database/Models/DNA Models.md",
+    "Planning/System Plan - Code/Database Models.md",
+    "Planning/System Plan - Code/Database/Models",
+    "Planning/System Plan - Code/Database",
+    "Planning/System Plan",
+    "Planning",
+    "Welcome.md"
+  ]
+}
