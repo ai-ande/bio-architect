@@ -630,3 +630,313 @@ class TestEdgeCases:
         retrieved = repository.get_biomarker_by_code(biomarker.code)
         assert retrieved.reference_low == pytest.approx(40.0)
         assert retrieved.reference_high == pytest.approx(60.0)
+
+
+class TestGetAllReports:
+    """Tests for get_all_reports method."""
+
+    def test_get_all_reports_returns_list(self, repository):
+        """get_all_reports returns a list."""
+        result = repository.get_all_reports()
+        assert isinstance(result, list)
+
+    def test_get_all_reports_returns_empty_when_no_reports(self, repository):
+        """get_all_reports returns empty list when no reports."""
+        result = repository.get_all_reports()
+        assert result == []
+
+    def test_get_all_reports_returns_all_reports(self, repository):
+        """get_all_reports returns all reports."""
+        report1 = LabReport(
+            id=uuid4(),
+            lab_provider="LabCorp",
+            collected_date=date(2024, 1, 1),
+        )
+        report2 = LabReport(
+            id=uuid4(),
+            lab_provider="Quest",
+            collected_date=date(2024, 2, 1),
+        )
+        repository.insert_report(report1)
+        repository.insert_report(report2)
+        result = repository.get_all_reports()
+        assert len(result) == 2
+
+    def test_get_all_reports_ordered_by_date_desc(self, repository):
+        """get_all_reports returns reports ordered by collected date descending."""
+        report_old = LabReport(
+            id=uuid4(),
+            lab_provider="LabCorp",
+            collected_date=date(2024, 1, 1),
+        )
+        report_new = LabReport(
+            id=uuid4(),
+            lab_provider="Quest",
+            collected_date=date(2024, 6, 1),
+        )
+        repository.insert_report(report_old)
+        repository.insert_report(report_new)
+        result = repository.get_all_reports()
+        assert result[0].lab_provider == "Quest"  # Newest first
+        assert result[1].lab_provider == "LabCorp"
+
+    def test_get_all_reports_returns_labreport_models(self, repository, sample_report):
+        """get_all_reports returns LabReport models."""
+        repository.insert_report(sample_report)
+        result = repository.get_all_reports()
+        assert len(result) == 1
+        assert isinstance(result[0], LabReport)
+
+
+class TestGetPanelsByReport:
+    """Tests for get_panels_by_report method."""
+
+    def test_get_panels_by_report_returns_list(self, repository, sample_report):
+        """get_panels_by_report returns a list."""
+        repository.insert_report(sample_report)
+        result = repository.get_panels_by_report(sample_report.id)
+        assert isinstance(result, list)
+
+    def test_get_panels_by_report_returns_empty_when_no_panels(self, repository, sample_report):
+        """get_panels_by_report returns empty list when no panels."""
+        repository.insert_report(sample_report)
+        result = repository.get_panels_by_report(sample_report.id)
+        assert result == []
+
+    def test_get_panels_by_report_returns_panels(self, repository, sample_report, sample_panel):
+        """get_panels_by_report returns panels for the report."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        result = repository.get_panels_by_report(sample_report.id)
+        assert len(result) == 1
+        assert result[0].name == sample_panel.name
+
+    def test_get_panels_by_report_returns_only_matching_panels(self, repository):
+        """get_panels_by_report returns only panels for the specified report."""
+        report1 = LabReport(
+            id=uuid4(),
+            lab_provider="LabCorp",
+            collected_date=date(2024, 1, 1),
+        )
+        report2 = LabReport(
+            id=uuid4(),
+            lab_provider="Quest",
+            collected_date=date(2024, 2, 1),
+        )
+        repository.insert_report(report1)
+        repository.insert_report(report2)
+
+        panel1 = Panel(id=uuid4(), lab_report_id=report1.id, name="CBC")
+        panel2 = Panel(id=uuid4(), lab_report_id=report2.id, name="Lipid Panel")
+        repository.insert_panel(panel1)
+        repository.insert_panel(panel2)
+
+        result = repository.get_panels_by_report(report1.id)
+        assert len(result) == 1
+        assert result[0].name == "CBC"
+
+    def test_get_panels_by_report_returns_panel_models(self, repository, sample_report, sample_panel):
+        """get_panels_by_report returns Panel models."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        result = repository.get_panels_by_report(sample_report.id)
+        assert isinstance(result[0], Panel)
+
+
+class TestGetBiomarkersByPanel:
+    """Tests for get_biomarkers_by_panel method."""
+
+    def test_get_biomarkers_by_panel_returns_list(self, repository, sample_report, sample_panel):
+        """get_biomarkers_by_panel returns a list."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        result = repository.get_biomarkers_by_panel(sample_panel.id)
+        assert isinstance(result, list)
+
+    def test_get_biomarkers_by_panel_returns_empty_when_no_biomarkers(self, repository, sample_report, sample_panel):
+        """get_biomarkers_by_panel returns empty list when no biomarkers."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        result = repository.get_biomarkers_by_panel(sample_panel.id)
+        assert result == []
+
+    def test_get_biomarkers_by_panel_returns_biomarkers(self, repository, sample_report, sample_panel, sample_biomarker):
+        """get_biomarkers_by_panel returns biomarkers for the panel."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        repository.insert_biomarker(sample_biomarker)
+        result = repository.get_biomarkers_by_panel(sample_panel.id)
+        assert len(result) == 1
+        assert result[0].code == sample_biomarker.code
+
+    def test_get_biomarkers_by_panel_returns_only_matching_biomarkers(self, repository, sample_report):
+        """get_biomarkers_by_panel returns only biomarkers for the specified panel."""
+        repository.insert_report(sample_report)
+        panel1 = Panel(id=uuid4(), lab_report_id=sample_report.id, name="CBC")
+        panel2 = Panel(id=uuid4(), lab_report_id=sample_report.id, name="Lipid Panel")
+        repository.insert_panel(panel1)
+        repository.insert_panel(panel2)
+
+        biomarker1 = Biomarker(
+            id=uuid4(),
+            panel_id=panel1.id,
+            name="Glucose",
+            code="GLUCOSE",
+            value=100.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        biomarker2 = Biomarker(
+            id=uuid4(),
+            panel_id=panel2.id,
+            name="LDL",
+            code="LDL",
+            value=100.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        repository.insert_biomarker(biomarker1)
+        repository.insert_biomarker(biomarker2)
+
+        result = repository.get_biomarkers_by_panel(panel1.id)
+        assert len(result) == 1
+        assert result[0].code == "GLUCOSE"
+
+    def test_get_biomarkers_by_panel_returns_biomarker_models(self, repository, sample_report, sample_panel, sample_biomarker):
+        """get_biomarkers_by_panel returns Biomarker models."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        repository.insert_biomarker(sample_biomarker)
+        result = repository.get_biomarkers_by_panel(sample_panel.id)
+        assert isinstance(result[0], Biomarker)
+
+
+class TestGetRecentBiomarkers:
+    """Tests for get_recent_biomarkers method."""
+
+    def test_get_recent_biomarkers_returns_list(self, repository):
+        """get_recent_biomarkers returns a list."""
+        result = repository.get_recent_biomarkers()
+        assert isinstance(result, list)
+
+    def test_get_recent_biomarkers_returns_empty_when_no_biomarkers(self, repository):
+        """get_recent_biomarkers returns empty list when no biomarkers."""
+        result = repository.get_recent_biomarkers()
+        assert result == []
+
+    def test_get_recent_biomarkers_returns_one_per_code(self, repository):
+        """get_recent_biomarkers returns one biomarker per unique code."""
+        report1 = LabReport(
+            id=uuid4(),
+            lab_provider="LabCorp",
+            collected_date=date(2024, 1, 1),
+        )
+        report2 = LabReport(
+            id=uuid4(),
+            lab_provider="LabCorp",
+            collected_date=date(2024, 6, 1),
+        )
+        repository.insert_report(report1)
+        repository.insert_report(report2)
+
+        panel1 = Panel(id=uuid4(), lab_report_id=report1.id, name="Panel")
+        panel2 = Panel(id=uuid4(), lab_report_id=report2.id, name="Panel")
+        repository.insert_panel(panel1)
+        repository.insert_panel(panel2)
+
+        # Same code (GLUCOSE) in both reports
+        biomarker_old = Biomarker(
+            id=uuid4(),
+            panel_id=panel1.id,
+            name="Glucose",
+            code="GLUCOSE",
+            value=90.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        biomarker_new = Biomarker(
+            id=uuid4(),
+            panel_id=panel2.id,
+            name="Glucose",
+            code="GLUCOSE",
+            value=95.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        repository.insert_biomarker(biomarker_old)
+        repository.insert_biomarker(biomarker_new)
+
+        result = repository.get_recent_biomarkers()
+        assert len(result) == 1
+        assert result[0].value == 95.0  # Most recent
+
+    def test_get_recent_biomarkers_returns_multiple_codes(self, repository, sample_report, sample_panel):
+        """get_recent_biomarkers returns biomarkers for each unique code."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+
+        biomarker1 = Biomarker(
+            id=uuid4(),
+            panel_id=sample_panel.id,
+            name="Glucose",
+            code="GLUCOSE",
+            value=100.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        biomarker2 = Biomarker(
+            id=uuid4(),
+            panel_id=sample_panel.id,
+            name="HDL",
+            code="HDL",
+            value=55.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        repository.insert_biomarker(biomarker1)
+        repository.insert_biomarker(biomarker2)
+
+        result = repository.get_recent_biomarkers()
+        assert len(result) == 2
+        codes = {r.code for r in result}
+        assert "GLUCOSE" in codes
+        assert "HDL" in codes
+
+    def test_get_recent_biomarkers_ordered_by_code(self, repository, sample_report, sample_panel):
+        """get_recent_biomarkers returns biomarkers ordered by code."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+
+        # Insert in reverse order
+        biomarker_z = Biomarker(
+            id=uuid4(),
+            panel_id=sample_panel.id,
+            name="VLDL",
+            code="VLDL",
+            value=30.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        biomarker_a = Biomarker(
+            id=uuid4(),
+            panel_id=sample_panel.id,
+            name="Glucose",
+            code="GLUCOSE",
+            value=100.0,
+            unit="mg/dL",
+            flag=Flag.NORMAL,
+        )
+        repository.insert_biomarker(biomarker_z)
+        repository.insert_biomarker(biomarker_a)
+
+        result = repository.get_recent_biomarkers()
+        assert result[0].code == "GLUCOSE"  # Alphabetically first
+        assert result[1].code == "VLDL"
+
+    def test_get_recent_biomarkers_returns_biomarker_models(self, repository, sample_report, sample_panel, sample_biomarker):
+        """get_recent_biomarkers returns Biomarker models."""
+        repository.insert_report(sample_report)
+        repository.insert_panel(sample_panel)
+        repository.insert_biomarker(sample_biomarker)
+        result = repository.get_recent_biomarkers()
+        assert isinstance(result[0], Biomarker)

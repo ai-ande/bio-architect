@@ -203,6 +203,99 @@ class BloodworkRepository:
         rows = cursor.fetchall()
         return [self._row_to_biomarker(row) for row in rows]
 
+    def get_all_reports(self) -> list[LabReport]:
+        """Get all lab reports ordered by collected date descending.
+
+        Returns:
+            List of LabReport models.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, lab_provider, collected_date, source_file, created_at
+            FROM lab_reports
+            ORDER BY collected_date DESC
+            """
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_report(row) for row in rows]
+
+    def get_panels_by_report(self, report_id: UUID) -> list[Panel]:
+        """Get all panels for a lab report.
+
+        Args:
+            report_id: UUID of the lab report.
+
+        Returns:
+            List of Panel models.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, lab_report_id, name, comment
+            FROM panels
+            WHERE lab_report_id = ?
+            """,
+            (str(report_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_panel(row) for row in rows]
+
+    def get_biomarkers_by_panel(self, panel_id: UUID) -> list[Biomarker]:
+        """Get all biomarkers for a panel.
+
+        Args:
+            panel_id: UUID of the panel.
+
+        Returns:
+            List of Biomarker models.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, panel_id, name, code, value, unit, reference_low, reference_high, flag
+            FROM biomarkers
+            WHERE panel_id = ?
+            """,
+            (str(panel_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_biomarker(row) for row in rows]
+
+    def get_recent_biomarkers(self) -> list[Biomarker]:
+        """Get the most recent value for each biomarker code.
+
+        Returns:
+            List of Biomarker models, one per unique code, ordered by code.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        # Use a subquery to get the most recent biomarker for each code
+        cursor.execute(
+            """
+            SELECT b.id, b.panel_id, b.name, b.code, b.value, b.unit,
+                   b.reference_low, b.reference_high, b.flag
+            FROM biomarkers b
+            JOIN panels p ON b.panel_id = p.id
+            JOIN lab_reports r ON p.lab_report_id = r.id
+            WHERE b.id = (
+                SELECT b2.id
+                FROM biomarkers b2
+                JOIN panels p2 ON b2.panel_id = p2.id
+                JOIN lab_reports r2 ON p2.lab_report_id = r2.id
+                WHERE b2.code = b.code
+                ORDER BY r2.collected_date DESC
+                LIMIT 1
+            )
+            ORDER BY b.code
+            """
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_biomarker(row) for row in rows]
+
     def _row_to_report(self, row) -> LabReport:
         """Convert a database row to a LabReport model.
 
@@ -218,6 +311,22 @@ class BloodworkRepository:
             collected_date=date.fromisoformat(row["collected_date"]),
             source_file=row["source_file"],
             created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    def _row_to_panel(self, row) -> Panel:
+        """Convert a database row to a Panel model.
+
+        Args:
+            row: SQLite Row object.
+
+        Returns:
+            Panel model.
+        """
+        return Panel(
+            id=UUID(row["id"]),
+            lab_report_id=UUID(row["lab_report_id"]),
+            name=row["name"],
+            comment=row["comment"],
         )
 
     def _row_to_biomarker(self, row) -> Biomarker:
