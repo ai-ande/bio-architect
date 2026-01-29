@@ -323,3 +323,68 @@ class KnowledgeRepository:
             knowledge_id=UUID(row["knowledge_id"]),
             tag=row["tag"],
         )
+
+    def get_all(self) -> list[Knowledge]:
+        """Get all knowledge entries.
+
+        Returns:
+            List of Knowledge models ordered by created_at DESC.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, type, status, summary, content, confidence,
+                   supersedes_id, supersession_reason, created_at
+            FROM knowledge
+            ORDER BY created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_knowledge(row) for row in rows]
+
+    def get_tags_by_knowledge(self, knowledge_id: UUID) -> list[KnowledgeTag]:
+        """Get all tags for a knowledge entry.
+
+        Args:
+            knowledge_id: UUID of the knowledge entry.
+
+        Returns:
+            List of KnowledgeTag models for the knowledge entry.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, knowledge_id, tag
+            FROM knowledge_tags
+            WHERE knowledge_id = ?
+            ORDER BY tag
+            """,
+            (str(knowledge_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_tag(row) for row in rows]
+
+    def get_links_by_knowledge(self, knowledge_id: UUID) -> list[KnowledgeLink]:
+        """Get all links for a knowledge entry.
+
+        Args:
+            knowledge_id: UUID of the knowledge entry.
+
+        Returns:
+            List of KnowledgeLink models for the knowledge entry.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, knowledge_id, link_type, target_id
+            FROM knowledge_links
+            WHERE knowledge_id = ?
+            ORDER BY link_type
+            """,
+            (str(knowledge_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_link(row) for row in rows]

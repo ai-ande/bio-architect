@@ -775,3 +775,242 @@ class TestEdgeCases:
         assert repository.get_active() == []
         assert repository.get_by_tag("any-tag") == []
         assert repository.get_by_link(LinkType.SNP, uuid4()) == []
+
+
+class TestGetAll:
+    """Tests for get_all method."""
+
+    def test_get_all_returns_list(self, repository, sample_knowledge):
+        """get_all returns a list."""
+        repository.insert_knowledge(sample_knowledge)
+        result = repository.get_all()
+        assert isinstance(result, list)
+
+    def test_get_all_returns_knowledge_models(self, repository, sample_knowledge):
+        """get_all returns Knowledge models."""
+        repository.insert_knowledge(sample_knowledge)
+        result = repository.get_all()
+        assert len(result) == 1
+        assert isinstance(result[0], Knowledge)
+
+    def test_get_all_returns_empty_list(self, repository):
+        """get_all returns empty list when no entries."""
+        result = repository.get_all()
+        assert result == []
+
+    def test_get_all_includes_deprecated(self, repository):
+        """get_all includes deprecated entries."""
+        active_knowledge = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            status=KnowledgeStatus.ACTIVE,
+            summary="Active insight",
+            content="Active content",
+            confidence=0.8,
+        )
+        deprecated_knowledge = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            status=KnowledgeStatus.DEPRECATED,
+            summary="Deprecated insight",
+            content="Old content",
+            confidence=0.6,
+        )
+        repository.insert_knowledge(active_knowledge)
+        repository.insert_knowledge(deprecated_knowledge)
+        result = repository.get_all()
+        assert len(result) == 2
+
+    def test_get_all_ordered_by_created_at_desc(self, repository):
+        """get_all returns results ordered by created_at descending."""
+        knowledge1 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="Older",
+            content="Content",
+            confidence=0.7,
+            created_at=datetime(2024, 1, 1, 10, 0, 0),
+        )
+        knowledge2 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="Newer",
+            content="Content",
+            confidence=0.7,
+            created_at=datetime(2024, 3, 1, 10, 0, 0),
+        )
+        knowledge3 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="Middle",
+            content="Content",
+            confidence=0.7,
+            created_at=datetime(2024, 2, 1, 10, 0, 0),
+        )
+        repository.insert_knowledge(knowledge1)
+        repository.insert_knowledge(knowledge2)
+        repository.insert_knowledge(knowledge3)
+        result = repository.get_all()
+        assert len(result) == 3
+        assert result[0].summary == "Newer"
+        assert result[1].summary == "Middle"
+        assert result[2].summary == "Older"
+
+
+class TestGetTagsByKnowledge:
+    """Tests for get_tags_by_knowledge method."""
+
+    def test_get_tags_by_knowledge_returns_list(self, repository, sample_knowledge, sample_tag):
+        """get_tags_by_knowledge returns a list."""
+        repository.insert_knowledge(sample_knowledge)
+        repository.insert_tag(sample_tag)
+        result = repository.get_tags_by_knowledge(sample_knowledge.id)
+        assert isinstance(result, list)
+
+    def test_get_tags_by_knowledge_returns_tag_models(self, repository, sample_knowledge, sample_tag):
+        """get_tags_by_knowledge returns KnowledgeTag models."""
+        repository.insert_knowledge(sample_knowledge)
+        repository.insert_tag(sample_tag)
+        result = repository.get_tags_by_knowledge(sample_knowledge.id)
+        assert len(result) == 1
+        assert isinstance(result[0], KnowledgeTag)
+        assert result[0].tag == sample_tag.tag
+
+    def test_get_tags_by_knowledge_returns_empty_list(self, repository, sample_knowledge):
+        """get_tags_by_knowledge returns empty list when no tags."""
+        repository.insert_knowledge(sample_knowledge)
+        result = repository.get_tags_by_knowledge(sample_knowledge.id)
+        assert result == []
+
+    def test_get_tags_by_knowledge_returns_all_tags(self, repository, sample_knowledge):
+        """get_tags_by_knowledge returns all tags for a knowledge entry."""
+        repository.insert_knowledge(sample_knowledge)
+        tags = ["alpha", "beta", "gamma"]
+        for tag_value in tags:
+            tag = KnowledgeTag(id=uuid4(), knowledge_id=sample_knowledge.id, tag=tag_value)
+            repository.insert_tag(tag)
+        result = repository.get_tags_by_knowledge(sample_knowledge.id)
+        assert len(result) == 3
+
+    def test_get_tags_by_knowledge_ordered_by_tag(self, repository, sample_knowledge):
+        """get_tags_by_knowledge returns tags ordered alphabetically."""
+        repository.insert_knowledge(sample_knowledge)
+        tags = ["zebra", "apple", "mango"]
+        for tag_value in tags:
+            tag = KnowledgeTag(id=uuid4(), knowledge_id=sample_knowledge.id, tag=tag_value)
+            repository.insert_tag(tag)
+        result = repository.get_tags_by_knowledge(sample_knowledge.id)
+        assert result[0].tag == "apple"
+        assert result[1].tag == "mango"
+        assert result[2].tag == "zebra"
+
+    def test_get_tags_by_knowledge_only_returns_matching(self, repository):
+        """get_tags_by_knowledge only returns tags for the specified knowledge."""
+        knowledge1 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="First",
+            content="Content",
+            confidence=0.7,
+        )
+        knowledge2 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="Second",
+            content="Content",
+            confidence=0.8,
+        )
+        repository.insert_knowledge(knowledge1)
+        repository.insert_knowledge(knowledge2)
+        repository.insert_tag(KnowledgeTag(id=uuid4(), knowledge_id=knowledge1.id, tag="tag1"))
+        repository.insert_tag(KnowledgeTag(id=uuid4(), knowledge_id=knowledge2.id, tag="tag2"))
+        result = repository.get_tags_by_knowledge(knowledge1.id)
+        assert len(result) == 1
+        assert result[0].tag == "tag1"
+
+
+class TestGetLinksByKnowledge:
+    """Tests for get_links_by_knowledge method."""
+
+    def test_get_links_by_knowledge_returns_list(self, repository, sample_knowledge, sample_link):
+        """get_links_by_knowledge returns a list."""
+        repository.insert_knowledge(sample_knowledge)
+        repository.insert_link(sample_link)
+        result = repository.get_links_by_knowledge(sample_knowledge.id)
+        assert isinstance(result, list)
+
+    def test_get_links_by_knowledge_returns_link_models(self, repository, sample_knowledge, sample_link):
+        """get_links_by_knowledge returns KnowledgeLink models."""
+        repository.insert_knowledge(sample_knowledge)
+        repository.insert_link(sample_link)
+        result = repository.get_links_by_knowledge(sample_knowledge.id)
+        assert len(result) == 1
+        assert isinstance(result[0], KnowledgeLink)
+        assert result[0].link_type == sample_link.link_type
+
+    def test_get_links_by_knowledge_returns_empty_list(self, repository, sample_knowledge):
+        """get_links_by_knowledge returns empty list when no links."""
+        repository.insert_knowledge(sample_knowledge)
+        result = repository.get_links_by_knowledge(sample_knowledge.id)
+        assert result == []
+
+    def test_get_links_by_knowledge_returns_all_links(self, repository, sample_knowledge):
+        """get_links_by_knowledge returns all links for a knowledge entry."""
+        repository.insert_knowledge(sample_knowledge)
+        for ltype in [LinkType.SNP, LinkType.BIOMARKER, LinkType.INGREDIENT]:
+            link = KnowledgeLink(
+                id=uuid4(),
+                knowledge_id=sample_knowledge.id,
+                link_type=ltype,
+                target_id=uuid4(),
+            )
+            repository.insert_link(link)
+        result = repository.get_links_by_knowledge(sample_knowledge.id)
+        assert len(result) == 3
+
+    def test_get_links_by_knowledge_ordered_by_link_type(self, repository, sample_knowledge):
+        """get_links_by_knowledge returns links ordered by link_type."""
+        repository.insert_knowledge(sample_knowledge)
+        # Insert in non-alphabetical order
+        types = [LinkType.SNP, LinkType.BIOMARKER, LinkType.INGREDIENT]
+        for ltype in types:
+            link = KnowledgeLink(
+                id=uuid4(),
+                knowledge_id=sample_knowledge.id,
+                link_type=ltype,
+                target_id=uuid4(),
+            )
+            repository.insert_link(link)
+        result = repository.get_links_by_knowledge(sample_knowledge.id)
+        # Should be ordered alphabetically: biomarker, ingredient, snp
+        assert result[0].link_type == LinkType.BIOMARKER
+        assert result[1].link_type == LinkType.INGREDIENT
+        assert result[2].link_type == LinkType.SNP
+
+    def test_get_links_by_knowledge_only_returns_matching(self, repository):
+        """get_links_by_knowledge only returns links for the specified knowledge."""
+        knowledge1 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="First",
+            content="Content",
+            confidence=0.7,
+        )
+        knowledge2 = Knowledge(
+            id=uuid4(),
+            type=KnowledgeType.INSIGHT,
+            summary="Second",
+            content="Content",
+            confidence=0.8,
+        )
+        repository.insert_knowledge(knowledge1)
+        repository.insert_knowledge(knowledge2)
+        repository.insert_link(
+            KnowledgeLink(id=uuid4(), knowledge_id=knowledge1.id, link_type=LinkType.SNP, target_id=uuid4())
+        )
+        repository.insert_link(
+            KnowledgeLink(id=uuid4(), knowledge_id=knowledge2.id, link_type=LinkType.BIOMARKER, target_id=uuid4())
+        )
+        result = repository.get_links_by_knowledge(knowledge1.id)
+        assert len(result) == 1
+        assert result[0].link_type == LinkType.SNP
