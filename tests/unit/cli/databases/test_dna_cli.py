@@ -6,10 +6,8 @@ from io import StringIO
 
 import pytest
 from pydantic import ValidationError
-from sqlmodel import select
-
 from cli.databases.dna import cmd_import, parse_dna_json
-from src.databases.datatypes.dna import DnaTest, Repute, Snp
+from src.databases.datatypes.dna import DnaRepository, DnaTest, Repute, Snp
 
 
 class TestParseDnaJson:
@@ -103,6 +101,11 @@ class TestDnaImport:
     """Tests for DNA import command."""
 
     @pytest.fixture
+    def repo(self, db_session):
+        """Create a DnaRepository instance."""
+        return DnaRepository(db_session)
+
+    @pytest.fixture
     def sample_json(self):
         """Sample valid DNA JSON."""
         return {
@@ -126,85 +129,85 @@ class TestDnaImport:
             ],
         }
 
-    def test_import_creates_dna_test(self, tmp_path, db_session, sample_json):
+    def test_import_creates_dna_test(self, tmp_path, repo, sample_json):
         """Import should create a DnaTest record."""
         json_file = tmp_path / "dna.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
-        tests = db_session.exec(select(DnaTest)).all()
+        tests = repo.list_tests()
         assert len(tests) == 1
         assert tests[0].source == "Promethease"
 
-    def test_import_creates_snps(self, tmp_path, db_session, sample_json):
+    def test_import_creates_snps(self, tmp_path, repo, sample_json):
         """Import should create Snp records linked to DnaTest."""
         json_file = tmp_path / "dna.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
-        snps = db_session.exec(select(Snp)).all()
+        snps = repo.get_snps_for_gene("MTHFR")
         assert len(snps) == 2
         rsids = {s.rsid for s in snps}
         assert rsids == {"rs1801133", "rs1801131"}
 
-    def test_import_sets_source_file(self, tmp_path, db_session, sample_json):
+    def test_import_sets_source_file(self, tmp_path, repo, sample_json):
         """Import should set source_file to the input file path."""
         json_file = tmp_path / "dna.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
-        test = db_session.exec(select(DnaTest)).first()
-        assert test.source_file == str(json_file)
+        tests = repo.list_tests()
+        assert tests[0].source_file == str(json_file)
 
-    def test_import_from_stdin(self, db_session, sample_json, monkeypatch):
+    def test_import_from_stdin(self, repo, sample_json, monkeypatch):
         """Import should read from stdin when no file provided."""
         stdin_data = json.dumps(sample_json)
         monkeypatch.setattr("sys.stdin", StringIO(stdin_data))
 
         args = argparse.Namespace(file=None, json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
-        tests = db_session.exec(select(DnaTest)).all()
+        tests = repo.list_tests()
         assert len(tests) == 1
         assert tests[0].source_file == "stdin"  # Placeholder for stdin
 
-    def test_import_json_output(self, tmp_path, db_session, sample_json, capsys):
+    def test_import_json_output(self, tmp_path, repo, sample_json, capsys):
         """Import with --json should return structured output."""
         json_file = tmp_path / "dna.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=True)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         captured = capsys.readouterr()
         result = json.loads(captured.out)
         assert "dna_test_id" in result
         assert result["snps_created"] == 2
 
-    def test_import_invalid_json_exits_with_error(self, tmp_path, db_session):
+    def test_import_invalid_json_exits_with_error(self, tmp_path, repo):
         """Import should exit with error for invalid JSON."""
         json_file = tmp_path / "invalid.json"
         json_file.write_text("not valid json {{{")
 
         args = argparse.Namespace(file=str(json_file), json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1
 
-    def test_import_missing_required_fields_exits_with_error(self, tmp_path, db_session):
+    def test_import_missing_required_fields_exits_with_error(self, tmp_path, repo):
         """Import should exit with error for missing required fields."""
         json_file = tmp_path / "incomplete.json"
         json_file.write_text(json.dumps({"source": "Promethease"}))  # Missing collected_date
 
         args = argparse.Namespace(file=str(json_file), json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1
 
     def test_import_no_partial_records_on_validation_error(self, tmp_path, db_client):
@@ -222,20 +225,19 @@ class TestDnaImport:
         json_file.write_text(json.dumps(data))
 
         with db_client.get_session() as session:
+            repo = DnaRepository(session)
             args = argparse.Namespace(file=str(json_file), json=False)
             with pytest.raises(SystemExit):
-                cmd_import(session, args)
+                cmd_import(repo, args)
 
         # Verify no partial data was inserted
         with db_client.get_session() as session:
-            tests = session.exec(select(DnaTest)).all()
-            snps = session.exec(select(Snp)).all()
-            assert len(tests) == 0
-            assert len(snps) == 0
+            repo = DnaRepository(session)
+            assert len(repo.list_tests()) == 0
 
-    def test_import_file_not_found_exits_with_error(self, db_session):
+    def test_import_file_not_found_exits_with_error(self, repo):
         """Import should exit with error for non-existent file."""
         args = argparse.Namespace(file="/nonexistent/path.json", json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1

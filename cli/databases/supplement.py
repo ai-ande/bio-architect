@@ -10,7 +10,6 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlmodel import Session, or_, select
 
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.supplement import (
@@ -19,6 +18,7 @@ from src.databases.datatypes.supplement import (
     ProprietaryBlend,
     SupplementForm,
     SupplementLabel,
+    SupplementRepository,
 )
 
 
@@ -172,13 +172,13 @@ def parse_supplement_json(
     return label, blends, ingredients
 
 
-def cmd_import(session: Session, args: argparse.Namespace) -> None:
+def cmd_import(repo: SupplementRepository, args: argparse.Namespace) -> None:
     """Import supplement from JSON file.
 
     Transaction handling:
     1. Parse JSON and construct all models (validation happens here)
-    2. If validation passes, add all to session
-    3. Commit as single atomic transaction
+    2. If validation passes, save via repository
+    3. Repository commits as single atomic transaction
     4. If anything fails, nothing is committed (no dangling records)
     """
     # Read JSON from file or stdin
@@ -208,19 +208,8 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Add all to session with flush() to ensure FK order
-    session.add(label)
-    session.flush()  # Ensure label exists before blends/ingredients
-
-    for blend in blends:
-        session.add(blend)
-    session.flush()  # Ensure blends exist before blend ingredients
-
-    for ingredient in ingredients:
-        session.add(ingredient)
-
-    # Step 3: Single atomic commit - all or nothing
-    session.commit()
+    # Step 2: Save via repository (atomic transaction)
+    repo.save_label(label, blends, ingredients)
 
     # Output
     if args.json:
@@ -235,10 +224,9 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"  Ingredients: {len(ingredients)}")
 
 
-def cmd_list(session: Session, args: argparse.Namespace) -> None:
+def cmd_list(repo: SupplementRepository, args: argparse.Namespace) -> None:
     """List all supplement labels."""
-    statement = select(SupplementLabel).order_by(SupplementLabel.brand, SupplementLabel.product_name)
-    labels = session.exec(statement).all()
+    labels = repo.list_labels()
     if args.json:
         print(json.dumps([label_to_dict(l) for l in labels], indent=2))
     else:
@@ -251,7 +239,7 @@ def cmd_list(session: Session, args: argparse.Namespace) -> None:
             print(format_label(label))
 
 
-def cmd_label(session: Session, args: argparse.Namespace) -> None:
+def cmd_label(repo: SupplementRepository, args: argparse.Namespace) -> None:
     """Show details for a single supplement label."""
     try:
         label_id = UUID(args.id)
@@ -259,21 +247,13 @@ def cmd_label(session: Session, args: argparse.Namespace) -> None:
         print(f"Invalid label ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    label = session.get(SupplementLabel, label_id)
+    label = repo.get_label(label_id)
     if label is None:
         print(f"Label not found: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    ingredients = session.exec(
-        select(Ingredient)
-        .where(Ingredient.supplement_label_id == label_id)
-        .order_by(Ingredient.type, Ingredient.name)
-    ).all()
-    blends = session.exec(
-        select(ProprietaryBlend)
-        .where(ProprietaryBlend.supplement_label_id == label_id)
-        .order_by(ProprietaryBlend.name)
-    ).all()
+    ingredients = repo.get_ingredients_for_label(label_id)
+    blends = repo.get_blends_for_label(label_id)
 
     if args.json:
         label_dict = label_to_dict(label)
@@ -281,9 +261,7 @@ def cmd_label(session: Session, args: argparse.Namespace) -> None:
         label_dict["blends"] = []
         for blend in blends:
             blend_dict = blend_to_dict(blend)
-            blend_ingredients = session.exec(
-                select(Ingredient).where(Ingredient.blend_id == blend.id).order_by(Ingredient.name)
-            ).all()
+            blend_ingredients = repo.get_ingredients_for_blend(blend.id)
             blend_dict["ingredients"] = [ingredient_to_dict(i) for i in blend_ingredients]
             label_dict["blends"].append(blend_dict)
         print(json.dumps(label_dict, indent=2))
@@ -308,9 +286,7 @@ def cmd_label(session: Session, args: argparse.Namespace) -> None:
         for blend in blends:
             amount_str = f"{blend.total_amount} {blend.total_unit}" if blend.total_amount else ""
             print(f"Blend: {blend.name} {amount_str}")
-            blend_ingredients = session.exec(
-                select(Ingredient).where(Ingredient.blend_id == blend.id).order_by(Ingredient.name)
-            ).all()
+            blend_ingredients = repo.get_ingredients_for_blend(blend.id)
             print("Name\tAmount\tUnit\t%DV\tType")
             print("-" * 60)
             for ingredient in blend_ingredients:
@@ -318,16 +294,16 @@ def cmd_label(session: Session, args: argparse.Namespace) -> None:
             print()
 
 
-def cmd_ingredient(session: Session, args: argparse.Namespace) -> None:
+def cmd_ingredient(repo: SupplementRepository, args: argparse.Namespace) -> None:
     """Show labels containing a given ingredient code."""
-    ingredients = session.exec(select(Ingredient).where(Ingredient.code == args.code)).all()
+    ingredients = repo.get_ingredients_by_code(args.code)
 
     if args.json:
         result = []
         for ing in ingredients:
             ing_dict = ingredient_to_dict(ing)
             if ing.supplement_label_id:
-                label = session.get(SupplementLabel, ing.supplement_label_id)
+                label = repo.get_label(ing.supplement_label_id)
                 if label:
                     ing_dict["label"] = label_to_dict(label)
             result.append(ing_dict)
@@ -342,7 +318,7 @@ def cmd_ingredient(session: Session, args: argparse.Namespace) -> None:
         seen_labels: set[UUID] = set()
         for ing in ingredients:
             if ing.supplement_label_id and ing.supplement_label_id not in seen_labels:
-                label = session.get(SupplementLabel, ing.supplement_label_id)
+                label = repo.get_label(ing.supplement_label_id)
                 if label:
                     amount_str = f"{ing.amount:.1f}" if ing.amount else "-"
                     unit_str = ing.unit if ing.unit else ""
@@ -350,16 +326,9 @@ def cmd_ingredient(session: Session, args: argparse.Namespace) -> None:
                     seen_labels.add(ing.supplement_label_id)
 
 
-def cmd_search(session: Session, args: argparse.Namespace) -> None:
+def cmd_search(repo: SupplementRepository, args: argparse.Namespace) -> None:
     """Search supplement labels by brand or product name."""
-    search_term = f"%{args.term}%"
-    statement = select(SupplementLabel).where(
-        or_(
-            SupplementLabel.brand.like(search_term),
-            SupplementLabel.product_name.like(search_term),
-        )
-    )
-    labels = session.exec(statement).all()
+    labels = repo.search_labels(args.term)
 
     if args.json:
         print(json.dumps([label_to_dict(l) for l in labels], indent=2))
@@ -425,16 +394,17 @@ def main(args: Optional[list[str]] = None) -> None:
 
     with DatabaseClient() as client:
         with client.get_session() as session:
+            repo = SupplementRepository(session)
             if parsed_args.command == "import":
-                cmd_import(session, parsed_args)
+                cmd_import(repo, parsed_args)
             elif parsed_args.command == "list":
-                cmd_list(session, parsed_args)
+                cmd_list(repo, parsed_args)
             elif parsed_args.command == "label":
-                cmd_label(session, parsed_args)
+                cmd_label(repo, parsed_args)
             elif parsed_args.command == "ingredient":
-                cmd_ingredient(session, parsed_args)
+                cmd_ingredient(repo, parsed_args)
             elif parsed_args.command == "search":
-                cmd_search(session, parsed_args)
+                cmd_search(repo, parsed_args)
 
 
 if __name__ == "__main__":

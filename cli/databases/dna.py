@@ -10,10 +10,9 @@ from datetime import date
 from typing import Optional
 
 from pydantic import ValidationError
-from sqlmodel import Session, select
 
 from src.databases.clients.sqlite import DatabaseClient
-from src.databases.datatypes.dna import DnaTest, Repute, Snp
+from src.databases.datatypes.dna import DnaRepository, DnaTest, Repute, Snp
 
 
 def format_snp(snp: Snp) -> str:
@@ -98,13 +97,13 @@ def parse_dna_json(
     return dna_test, snps
 
 
-def cmd_import(session: Session, args: argparse.Namespace) -> None:
+def cmd_import(repo: DnaRepository, args: argparse.Namespace) -> None:
     """Import DNA data from JSON file.
 
     Transaction handling:
     1. Parse JSON and construct all models (validation happens here)
-    2. If validation passes, add all to session
-    3. Commit as single atomic transaction
+    2. If validation passes, save via repository
+    3. Repository commits as single atomic transaction
     4. If anything fails, nothing is committed (no dangling records)
     """
     # Read JSON from file or stdin
@@ -134,15 +133,8 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Add all to session with flush() to ensure FK order
-    session.add(dna_test)
-    session.flush()  # Ensure dna_test exists before snps
-
-    for snp in snps:
-        session.add(snp)
-
-    # Step 3: Single atomic commit - all or nothing
-    session.commit()
+    # Step 2: Save via repository (atomic transaction)
+    repo.save_test(dna_test, snps)
 
     # Output
     if args.json:
@@ -155,10 +147,9 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"  SNPs: {len(snps)}")
 
 
-def cmd_list(session: Session, args: argparse.Namespace) -> None:
+def cmd_list(repo: DnaRepository, args: argparse.Namespace) -> None:
     """List all DNA tests."""
-    statement = select(DnaTest).order_by(DnaTest.collected_date.desc())
-    tests = session.exec(statement).all()
+    tests = repo.list_tests()
     if args.json:
         print(json.dumps([dna_test_to_dict(t) for t in tests], indent=2))
     else:
@@ -171,10 +162,9 @@ def cmd_list(session: Session, args: argparse.Namespace) -> None:
             print(format_test(test))
 
 
-def cmd_snp(session: Session, args: argparse.Namespace) -> None:
+def cmd_snp(repo: DnaRepository, args: argparse.Namespace) -> None:
     """Show details for a single SNP by rsid."""
-    statement = select(Snp).where(Snp.rsid == args.rsid)
-    snp = session.exec(statement).first()
+    snp = repo.get_snp_by_rsid(args.rsid)
     if snp is None:
         print(f"SNP not found: {args.rsid}", file=sys.stderr)
         sys.exit(1)
@@ -186,10 +176,9 @@ def cmd_snp(session: Session, args: argparse.Namespace) -> None:
         print(format_snp(snp))
 
 
-def cmd_gene(session: Session, args: argparse.Namespace) -> None:
+def cmd_gene(repo: DnaRepository, args: argparse.Namespace) -> None:
     """Show all SNPs for a gene."""
-    statement = select(Snp).where(Snp.gene == args.gene).order_by(Snp.magnitude.desc())
-    snps = session.exec(statement).all()
+    snps = repo.get_snps_for_gene(args.gene)
     if args.json:
         print(json.dumps([snp_to_dict(s) for s in snps], indent=2))
     else:
@@ -202,10 +191,9 @@ def cmd_gene(session: Session, args: argparse.Namespace) -> None:
             print(format_snp(snp))
 
 
-def cmd_high_impact(session: Session, args: argparse.Namespace) -> None:
+def cmd_high_impact(repo: DnaRepository, args: argparse.Namespace) -> None:
     """Show SNPs with magnitude >= 3."""
-    statement = select(Snp).where(Snp.magnitude >= 3.0).order_by(Snp.magnitude.desc())
-    snps = session.exec(statement).all()
+    snps = repo.get_high_impact_snps()
     if args.json:
         print(json.dumps([snp_to_dict(s) for s in snps], indent=2))
     else:
@@ -268,16 +256,17 @@ def main(args: Optional[list[str]] = None) -> None:
 
     with DatabaseClient() as client:
         with client.get_session() as session:
+            repo = DnaRepository(session)
             if parsed_args.command == "import":
-                cmd_import(session, parsed_args)
+                cmd_import(repo, parsed_args)
             elif parsed_args.command == "list":
-                cmd_list(session, parsed_args)
+                cmd_list(repo, parsed_args)
             elif parsed_args.command == "snp":
-                cmd_snp(session, parsed_args)
+                cmd_snp(repo, parsed_args)
             elif parsed_args.command == "gene":
-                cmd_gene(session, parsed_args)
+                cmd_gene(repo, parsed_args)
             elif parsed_args.command == "high-impact":
-                cmd_high_impact(session, parsed_args)
+                cmd_high_impact(repo, parsed_args)
 
 
 if __name__ == "__main__":

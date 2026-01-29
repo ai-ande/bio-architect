@@ -1,4 +1,4 @@
-"""Knowledge models."""
+"""Knowledge models and repository."""
 
 from .models import (
     Knowledge,
@@ -8,10 +8,12 @@ from .models import (
     KnowledgeType,
     LinkType,
 )
+from .repository import KnowledgeRepository
 
 __all__ = [
     "Knowledge",
     "KnowledgeLink",
+    "KnowledgeRepository",
     "KnowledgeStatus",
     "KnowledgeTag",
     "KnowledgeType",

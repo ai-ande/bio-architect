@@ -1,4 +1,4 @@
-"""Supplement protocol models."""
+"""Supplement protocol models and repository."""
 
 from .models import (
     Frequency,
@@ -6,6 +6,7 @@ from .models import (
     ProtocolSupplementType,
     SupplementProtocol,
 )
+from .repository import SupplementProtocolRepository
 from .validators import SupplementCode
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "ProtocolSupplementType",
     "SupplementCode",
     "SupplementProtocol",
+    "SupplementProtocolRepository",
 ]

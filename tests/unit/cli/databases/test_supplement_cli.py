@@ -15,6 +15,7 @@ from src.databases.datatypes.supplement import (
     ProprietaryBlend,
     SupplementForm,
     SupplementLabel,
+    SupplementRepository,
 )
 
 
@@ -155,6 +156,11 @@ class TestSupplementImport:
     """Tests for supplement import command."""
 
     @pytest.fixture
+    def repo(self, db_session):
+        """Create a SupplementRepository instance."""
+        return SupplementRepository(db_session)
+
+    @pytest.fixture
     def sample_json(self):
         """Sample valid supplement JSON."""
         return {
@@ -182,33 +188,33 @@ class TestSupplementImport:
             "allergen_info": None,
         }
 
-    def test_import_creates_supplement_label(self, tmp_path, db_session, sample_json):
+    def test_import_creates_supplement_label(self, tmp_path, db_session, repo, sample_json):
         """Import should create a SupplementLabel record."""
         json_file = tmp_path / "supplement.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         labels = db_session.exec(select(SupplementLabel)).all()
         assert len(labels) == 1
         assert labels[0].brand == "Thorne"
         assert labels[0].product_name == "Zinc Picolinate"
 
-    def test_import_creates_ingredients(self, tmp_path, db_session, sample_json):
+    def test_import_creates_ingredients(self, tmp_path, db_session, repo, sample_json):
         """Import should create Ingredient records."""
         json_file = tmp_path / "supplement.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         ingredients = db_session.exec(select(Ingredient)).all()
         assert len(ingredients) == 2
         codes = {i.code for i in ingredients}
         assert codes == {"ZINC", "HYPROMELLOSE"}
 
-    def test_import_creates_blends(self, tmp_path, db_session):
+    def test_import_creates_blends(self, tmp_path, db_session, repo):
         """Import should create ProprietaryBlend records."""
         data = {
             "brand": "Test",
@@ -232,42 +238,42 @@ class TestSupplementImport:
         json_file.write_text(json.dumps(data))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         blends = db_session.exec(select(ProprietaryBlend)).all()
         assert len(blends) == 1
         assert blends[0].name == "Test Blend"
 
-    def test_import_sets_source_file(self, tmp_path, db_session, sample_json):
+    def test_import_sets_source_file(self, tmp_path, db_session, repo, sample_json):
         """Import should set source_file to the input file path."""
         json_file = tmp_path / "supplement.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         label = db_session.exec(select(SupplementLabel)).first()
         assert label.source_file == str(json_file)
 
-    def test_import_from_stdin(self, db_session, sample_json, monkeypatch):
+    def test_import_from_stdin(self, db_session, repo, sample_json, monkeypatch):
         """Import should read from stdin when no file provided."""
         stdin_data = json.dumps(sample_json)
         monkeypatch.setattr("sys.stdin", StringIO(stdin_data))
 
         args = argparse.Namespace(file=None, json=False)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         labels = db_session.exec(select(SupplementLabel)).all()
         assert len(labels) == 1
         assert labels[0].source_file is None
 
-    def test_import_json_output(self, tmp_path, db_session, sample_json, capsys):
+    def test_import_json_output(self, tmp_path, db_session, repo, sample_json, capsys):
         """Import with --json should return structured output."""
         json_file = tmp_path / "supplement.json"
         json_file.write_text(json.dumps(sample_json))
 
         args = argparse.Namespace(file=str(json_file), json=True)
-        cmd_import(db_session, args)
+        cmd_import(repo, args)
 
         captured = capsys.readouterr()
         result = json.loads(captured.out)
@@ -275,24 +281,24 @@ class TestSupplementImport:
         assert result["ingredients_created"] == 2
         assert result["blends_created"] == 0
 
-    def test_import_invalid_json_exits_with_error(self, tmp_path, db_session):
+    def test_import_invalid_json_exits_with_error(self, tmp_path, repo):
         """Import should exit with error for invalid JSON."""
         json_file = tmp_path / "invalid.json"
         json_file.write_text("not valid json {{{")
 
         args = argparse.Namespace(file=str(json_file), json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1
 
-    def test_import_missing_required_fields_exits_with_error(self, tmp_path, db_session):
+    def test_import_missing_required_fields_exits_with_error(self, tmp_path, repo):
         """Import should exit with error for missing required fields."""
         json_file = tmp_path / "incomplete.json"
         json_file.write_text(json.dumps({"brand": "Test"}))  # Missing required fields
 
         args = argparse.Namespace(file=str(json_file), json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1
 
     def test_import_no_partial_records_on_validation_error(self, tmp_path, db_client):
@@ -314,9 +320,10 @@ class TestSupplementImport:
         json_file.write_text(json.dumps(data))
 
         with db_client.get_session() as session:
+            repo = SupplementRepository(session)
             args = argparse.Namespace(file=str(json_file), json=False)
             with pytest.raises(SystemExit):
-                cmd_import(session, args)
+                cmd_import(repo, args)
 
         # Verify no partial data was inserted
         with db_client.get_session() as session:
@@ -325,9 +332,9 @@ class TestSupplementImport:
             assert len(labels) == 0
             assert len(ingredients) == 0
 
-    def test_import_file_not_found_exits_with_error(self, db_session):
+    def test_import_file_not_found_exits_with_error(self, repo):
         """Import should exit with error for non-existent file."""
         args = argparse.Namespace(file="/nonexistent/path.json", json=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_import(db_session, args)
+            cmd_import(repo, args)
         assert exc_info.value.code == 1

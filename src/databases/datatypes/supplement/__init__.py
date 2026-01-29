@@ -1,4 +1,4 @@
-"""Supplement label models."""
+"""Supplement label models and repository."""
 
 from .models import (
     Ingredient,
@@ -7,6 +7,7 @@ from .models import (
     SupplementForm,
     SupplementLabel,
 )
+from .repository import SupplementRepository
 from .validators import VALID_INGREDIENT_CODES, IngredientCode
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "ProprietaryBlend",
     "SupplementForm",
     "SupplementLabel",
+    "SupplementRepository",
     "VALID_INGREDIENT_CODES",
 ]

@@ -1,4 +1,4 @@
-"""Bloodwork models."""
+"""Bloodwork models and repository."""
 
 from .models import (
     Biomarker,
@@ -6,11 +6,13 @@ from .models import (
     LabReport,
     Panel,
 )
+from .repository import BloodworkRepository
 from .validators import VALID_BIOMARKER_CODES, BiomarkerCode
 
 __all__ = [
     "Biomarker",
     "BiomarkerCode",
+    "BloodworkRepository",
     "Flag",
     "LabReport",
     "Panel",

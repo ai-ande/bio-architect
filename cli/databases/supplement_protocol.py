@@ -11,7 +11,6 @@ from typing import Optional
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlmodel import Session, select
 
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.supplement_protocol import (
@@ -19,6 +18,7 @@ from src.databases.datatypes.supplement_protocol import (
     ProtocolSupplement,
     ProtocolSupplementType,
     SupplementProtocol,
+    SupplementProtocolRepository,
 )
 
 
@@ -165,13 +165,13 @@ def parse_protocol_json(
     return protocol, supplements
 
 
-def cmd_import(session: Session, args: argparse.Namespace) -> None:
+def cmd_import(repo: SupplementProtocolRepository, args: argparse.Namespace) -> None:
     """Import protocol from JSON file.
 
     Transaction handling:
     1. Parse JSON and construct all models (validation happens here)
-    2. If validation passes, add all to session
-    3. Commit as single atomic transaction
+    2. If validation passes, save via repository
+    3. Repository commits as single atomic transaction
     4. If anything fails, nothing is committed (no dangling records)
     """
     # Read JSON from file or stdin
@@ -201,15 +201,8 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"Validation error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Step 2: Add all to session with flush() to ensure FK order
-    session.add(protocol)
-    session.flush()  # Ensure protocol exists before supplements
-
-    for supplement in supplements:
-        session.add(supplement)
-
-    # Step 3: Single atomic commit - all or nothing
-    session.commit()
+    # Step 2: Save via repository (atomic transaction)
+    repo.save_protocol(protocol, supplements)
 
     # Output
     if args.json:
@@ -222,29 +215,25 @@ def cmd_import(session: Session, args: argparse.Namespace) -> None:
         print(f"  Supplements: {len(supplements)}")
 
 
-def cmd_current(session: Session, args: argparse.Namespace) -> None:
+def cmd_current(repo: SupplementProtocolRepository, args: argparse.Namespace) -> None:
     """Show the latest protocol."""
-    statement = select(SupplementProtocol).order_by(SupplementProtocol.protocol_date.desc()).limit(1)
-    protocol = session.exec(statement).first()
+    protocol = repo.get_current_protocol()
     if protocol is None:
         print("No protocols found.")
         return
 
     if args.json:
         protocol_dict = protocol_to_dict(protocol)
-        supplements = session.exec(
-            select(ProtocolSupplement).where(ProtocolSupplement.protocol_id == protocol.id)
-        ).all()
+        supplements = repo.get_supplements_for_protocol(protocol.id)
         protocol_dict["supplements"] = [supplement_to_dict(s) for s in supplements]
         print(json.dumps(protocol_dict, indent=2))
     else:
-        print_protocol_details(session, protocol)
+        print_protocol_details(repo, protocol)
 
 
-def cmd_list(session: Session, args: argparse.Namespace) -> None:
+def cmd_list(repo: SupplementProtocolRepository, args: argparse.Namespace) -> None:
     """List all protocols."""
-    statement = select(SupplementProtocol).order_by(SupplementProtocol.protocol_date.desc())
-    protocols = session.exec(statement).all()
+    protocols = repo.list_protocols()
     if args.json:
         print(json.dumps([protocol_to_dict(p) for p in protocols], indent=2))
     else:
@@ -257,7 +246,7 @@ def cmd_list(session: Session, args: argparse.Namespace) -> None:
             print(format_protocol(protocol))
 
 
-def cmd_protocol(session: Session, args: argparse.Namespace) -> None:
+def cmd_protocol(repo: SupplementProtocolRepository, args: argparse.Namespace) -> None:
     """Show details for a single protocol."""
     try:
         protocol_id = UUID(args.id)
@@ -265,34 +254,29 @@ def cmd_protocol(session: Session, args: argparse.Namespace) -> None:
         print(f"Invalid protocol ID: {args.id}", file=sys.stderr)
         sys.exit(1)
 
-    protocol = session.get(SupplementProtocol, protocol_id)
+    protocol = repo.get_protocol(protocol_id)
     if protocol is None:
         print(f"Protocol not found: {args.id}", file=sys.stderr)
         sys.exit(1)
 
     if args.json:
         protocol_dict = protocol_to_dict(protocol)
-        supplements = session.exec(
-            select(ProtocolSupplement).where(ProtocolSupplement.protocol_id == protocol.id)
-        ).all()
+        supplements = repo.get_supplements_for_protocol(protocol.id)
         protocol_dict["supplements"] = [supplement_to_dict(s) for s in supplements]
         print(json.dumps(protocol_dict, indent=2))
     else:
-        print_protocol_details(session, protocol)
+        print_protocol_details(repo, protocol)
 
 
-def cmd_history(session: Session, args: argparse.Namespace) -> None:
+def cmd_history(repo: SupplementProtocolRepository, args: argparse.Namespace) -> None:
     """Show protocol changes over time."""
-    statement = select(SupplementProtocol).order_by(SupplementProtocol.protocol_date.desc())
-    protocols = session.exec(statement).all()
+    protocols = repo.list_protocols()
 
     if args.json:
         result = []
         for protocol in protocols:
             protocol_dict = protocol_to_dict(protocol)
-            supplements = session.exec(
-                select(ProtocolSupplement).where(ProtocolSupplement.protocol_id == protocol.id)
-            ).all()
+            supplements = repo.get_supplements_for_protocol(protocol.id)
             protocol_dict["supplements"] = [supplement_to_dict(s) for s in supplements]
             result.append(protocol_dict)
         print(json.dumps(result, indent=2))
@@ -305,10 +289,12 @@ def cmd_history(session: Session, args: argparse.Namespace) -> None:
                 print()
                 print("=" * 80)
                 print()
-            print_protocol_details(session, protocol)
+            print_protocol_details(repo, protocol)
 
 
-def print_protocol_details(session: Session, protocol: SupplementProtocol) -> None:
+def print_protocol_details(
+    repo: SupplementProtocolRepository, protocol: SupplementProtocol
+) -> None:
     """Print formatted protocol details."""
     print(f"Protocol: {protocol.id}")
     print(f"Date: {protocol.protocol_date}")
@@ -324,9 +310,7 @@ def print_protocol_details(session: Session, protocol: SupplementProtocol) -> No
             print(f"  - {note}")
     print()
 
-    supplements = session.exec(
-        select(ProtocolSupplement).where(ProtocolSupplement.protocol_id == protocol.id)
-    ).all()
+    supplements = repo.get_supplements_for_protocol(protocol.id)
     if supplements:
         print("Supplements:")
         print("Name\tFrequency\tDosage\tSchedule\tInstructions")
@@ -384,16 +368,17 @@ def main(args: Optional[list[str]] = None) -> None:
 
     with DatabaseClient() as client:
         with client.get_session() as session:
+            repo = SupplementProtocolRepository(session)
             if parsed_args.command == "import":
-                cmd_import(session, parsed_args)
+                cmd_import(repo, parsed_args)
             elif parsed_args.command == "current":
-                cmd_current(session, parsed_args)
+                cmd_current(repo, parsed_args)
             elif parsed_args.command == "list":
-                cmd_list(session, parsed_args)
+                cmd_list(repo, parsed_args)
             elif parsed_args.command == "protocol":
-                cmd_protocol(session, parsed_args)
+                cmd_protocol(repo, parsed_args)
             elif parsed_args.command == "history":
-                cmd_history(session, parsed_args)
+                cmd_history(repo, parsed_args)
 
 
 if __name__ == "__main__":
