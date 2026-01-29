@@ -585,3 +585,395 @@ class TestEdgeCases:
         repository.insert_label(label2)
         result = repository.search_labels("")
         assert len(result) == 2
+
+
+class TestGetAllLabels:
+    """Tests for get_all_labels method."""
+
+    def test_get_all_labels_returns_list(self, repository):
+        """get_all_labels returns a list."""
+        result = repository.get_all_labels()
+        assert isinstance(result, list)
+
+    def test_get_all_labels_empty_database(self, repository):
+        """get_all_labels returns empty list when no labels exist."""
+        result = repository.get_all_labels()
+        assert result == []
+
+    def test_get_all_labels_returns_label_models(self, repository, sample_label):
+        """get_all_labels returns SupplementLabel models."""
+        repository.insert_label(sample_label)
+        result = repository.get_all_labels()
+        assert len(result) == 1
+        assert isinstance(result[0], SupplementLabel)
+
+    def test_get_all_labels_returns_all_labels(self, repository):
+        """get_all_labels returns all labels."""
+        label1 = SupplementLabel(
+            id=uuid4(),
+            brand="Thorne",
+            product_name="Vitamin D-5000",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label2 = SupplementLabel(
+            id=uuid4(),
+            brand="Pure Encapsulations",
+            product_name="CoQ10",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label3 = SupplementLabel(
+            id=uuid4(),
+            brand="NOW Foods",
+            product_name="Omega-3",
+            form=SupplementForm.SOFTGEL,
+            serving_size="2 softgels",
+        )
+        repository.insert_label(label1)
+        repository.insert_label(label2)
+        repository.insert_label(label3)
+        result = repository.get_all_labels()
+        assert len(result) == 3
+
+    def test_get_all_labels_ordered_by_brand_and_product(self, repository):
+        """get_all_labels returns labels ordered by brand, then product name."""
+        label1 = SupplementLabel(
+            id=uuid4(),
+            brand="Thorne",
+            product_name="Vitamin D-5000",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label2 = SupplementLabel(
+            id=uuid4(),
+            brand="Pure Encapsulations",
+            product_name="CoQ10",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label3 = SupplementLabel(
+            id=uuid4(),
+            brand="Thorne",
+            product_name="Basic Nutrients",
+            form=SupplementForm.CAPSULE,
+            serving_size="4 caps",
+        )
+        repository.insert_label(label1)
+        repository.insert_label(label2)
+        repository.insert_label(label3)
+        result = repository.get_all_labels()
+        # Pure Encapsulations comes before Thorne alphabetically
+        # Within Thorne, Basic Nutrients comes before Vitamin D-5000
+        assert result[0].brand == "Pure Encapsulations"
+        assert result[1].brand == "Thorne"
+        assert result[1].product_name == "Basic Nutrients"
+        assert result[2].brand == "Thorne"
+        assert result[2].product_name == "Vitamin D-5000"
+
+
+class TestGetIngredientsByLabel:
+    """Tests for get_ingredients_by_label method."""
+
+    def test_get_ingredients_by_label_returns_list(self, repository, sample_label):
+        """get_ingredients_by_label returns a list."""
+        repository.insert_label(sample_label)
+        result = repository.get_ingredients_by_label(sample_label.id)
+        assert isinstance(result, list)
+
+    def test_get_ingredients_by_label_empty(self, repository, sample_label):
+        """get_ingredients_by_label returns empty list when no ingredients exist."""
+        repository.insert_label(sample_label)
+        result = repository.get_ingredients_by_label(sample_label.id)
+        assert result == []
+
+    def test_get_ingredients_by_label_returns_ingredient_models(
+        self, repository, sample_label, sample_ingredient
+    ):
+        """get_ingredients_by_label returns Ingredient models."""
+        repository.insert_label(sample_label)
+        repository.insert_ingredient(sample_ingredient)
+        result = repository.get_ingredients_by_label(sample_label.id)
+        assert len(result) == 1
+        assert isinstance(result[0], Ingredient)
+
+    def test_get_ingredients_by_label_returns_only_label_ingredients(self, repository):
+        """get_ingredients_by_label returns only ingredients for the specified label."""
+        label1 = SupplementLabel(
+            id=uuid4(),
+            brand="Thorne",
+            product_name="Product 1",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label2 = SupplementLabel(
+            id=uuid4(),
+            brand="Pure",
+            product_name="Product 2",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        repository.insert_label(label1)
+        repository.insert_label(label2)
+
+        ingredient1 = Ingredient(
+            id=uuid4(),
+            supplement_label_id=label1.id,
+            type=IngredientType.ACTIVE,
+            name="Vitamin D3",
+            code="VITAMIN_D3",
+            amount=1000.0,
+            unit="IU",
+        )
+        ingredient2 = Ingredient(
+            id=uuid4(),
+            supplement_label_id=label2.id,
+            type=IngredientType.ACTIVE,
+            name="Magnesium",
+            code="MAGNESIUM",
+            amount=200.0,
+            unit="mg",
+        )
+        repository.insert_ingredient(ingredient1)
+        repository.insert_ingredient(ingredient2)
+
+        result = repository.get_ingredients_by_label(label1.id)
+        assert len(result) == 1
+        assert result[0].name == "Vitamin D3"
+
+    def test_get_ingredients_by_label_excludes_blend_ingredients(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_label excludes ingredients that belong to blends."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+
+        label_ingredient = Ingredient(
+            id=uuid4(),
+            supplement_label_id=sample_label.id,
+            type=IngredientType.ACTIVE,
+            name="Vitamin D3",
+            code="VITAMIN_D3",
+            amount=1000.0,
+            unit="IU",
+        )
+        blend_ingredient = Ingredient(
+            id=uuid4(),
+            blend_id=sample_blend.id,
+            type=IngredientType.BLEND,
+            name="Ashwagandha",
+            code="ASHWAGANDHA",
+            amount=100.0,
+            unit="mg",
+        )
+        repository.insert_ingredient(label_ingredient)
+        repository.insert_ingredient(blend_ingredient)
+
+        result = repository.get_ingredients_by_label(sample_label.id)
+        assert len(result) == 1
+        assert result[0].name == "Vitamin D3"
+
+
+class TestGetBlendsByLabel:
+    """Tests for get_blends_by_label method."""
+
+    def test_get_blends_by_label_returns_list(self, repository, sample_label):
+        """get_blends_by_label returns a list."""
+        repository.insert_label(sample_label)
+        result = repository.get_blends_by_label(sample_label.id)
+        assert isinstance(result, list)
+
+    def test_get_blends_by_label_empty(self, repository, sample_label):
+        """get_blends_by_label returns empty list when no blends exist."""
+        repository.insert_label(sample_label)
+        result = repository.get_blends_by_label(sample_label.id)
+        assert result == []
+
+    def test_get_blends_by_label_returns_blend_models(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_blends_by_label returns ProprietaryBlend models."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        result = repository.get_blends_by_label(sample_label.id)
+        assert len(result) == 1
+        assert isinstance(result[0], ProprietaryBlend)
+
+    def test_get_blends_by_label_returns_only_label_blends(self, repository):
+        """get_blends_by_label returns only blends for the specified label."""
+        label1 = SupplementLabel(
+            id=uuid4(),
+            brand="Thorne",
+            product_name="Product 1",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        label2 = SupplementLabel(
+            id=uuid4(),
+            brand="Pure",
+            product_name="Product 2",
+            form=SupplementForm.CAPSULE,
+            serving_size="1 cap",
+        )
+        repository.insert_label(label1)
+        repository.insert_label(label2)
+
+        blend1 = ProprietaryBlend(
+            id=uuid4(),
+            supplement_label_id=label1.id,
+            name="Energy Blend",
+            total_amount=500.0,
+            total_unit="mg",
+        )
+        blend2 = ProprietaryBlend(
+            id=uuid4(),
+            supplement_label_id=label2.id,
+            name="Focus Blend",
+            total_amount=300.0,
+            total_unit="mg",
+        )
+        repository.insert_blend(blend1)
+        repository.insert_blend(blend2)
+
+        result = repository.get_blends_by_label(label1.id)
+        assert len(result) == 1
+        assert result[0].name == "Energy Blend"
+
+    def test_get_blends_by_label_ordered_by_name(self, repository, sample_label):
+        """get_blends_by_label returns blends ordered by name."""
+        repository.insert_label(sample_label)
+        blend1 = ProprietaryBlend(
+            id=uuid4(),
+            supplement_label_id=sample_label.id,
+            name="Zen Blend",
+            total_amount=200.0,
+            total_unit="mg",
+        )
+        blend2 = ProprietaryBlend(
+            id=uuid4(),
+            supplement_label_id=sample_label.id,
+            name="Alpha Blend",
+            total_amount=300.0,
+            total_unit="mg",
+        )
+        repository.insert_blend(blend1)
+        repository.insert_blend(blend2)
+
+        result = repository.get_blends_by_label(sample_label.id)
+        assert len(result) == 2
+        assert result[0].name == "Alpha Blend"
+        assert result[1].name == "Zen Blend"
+
+
+class TestGetIngredientsByBlend:
+    """Tests for get_ingredients_by_blend method."""
+
+    def test_get_ingredients_by_blend_returns_list(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_blend returns a list."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        result = repository.get_ingredients_by_blend(sample_blend.id)
+        assert isinstance(result, list)
+
+    def test_get_ingredients_by_blend_empty(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_blend returns empty list when no ingredients exist."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        result = repository.get_ingredients_by_blend(sample_blend.id)
+        assert result == []
+
+    def test_get_ingredients_by_blend_returns_ingredient_models(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_blend returns Ingredient models."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        blend_ingredient = Ingredient(
+            id=uuid4(),
+            blend_id=sample_blend.id,
+            type=IngredientType.BLEND,
+            name="Ashwagandha",
+            code="ASHWAGANDHA",
+            amount=100.0,
+            unit="mg",
+        )
+        repository.insert_ingredient(blend_ingredient)
+        result = repository.get_ingredients_by_blend(sample_blend.id)
+        assert len(result) == 1
+        assert isinstance(result[0], Ingredient)
+
+    def test_get_ingredients_by_blend_returns_only_blend_ingredients(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_blend returns only ingredients for the specified blend."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        blend2 = ProprietaryBlend(
+            id=uuid4(),
+            supplement_label_id=sample_label.id,
+            name="Focus Blend",
+            total_amount=300.0,
+            total_unit="mg",
+        )
+        repository.insert_blend(blend2)
+
+        ingredient1 = Ingredient(
+            id=uuid4(),
+            blend_id=sample_blend.id,
+            type=IngredientType.BLEND,
+            name="Ashwagandha",
+            code="ASHWAGANDHA",
+            amount=100.0,
+            unit="mg",
+        )
+        ingredient2 = Ingredient(
+            id=uuid4(),
+            blend_id=blend2.id,
+            type=IngredientType.BLEND,
+            name="L-Taurine",
+            code="L_TAURINE",
+            amount=200.0,
+            unit="mg",
+        )
+        repository.insert_ingredient(ingredient1)
+        repository.insert_ingredient(ingredient2)
+
+        result = repository.get_ingredients_by_blend(sample_blend.id)
+        assert len(result) == 1
+        assert result[0].name == "Ashwagandha"
+
+    def test_get_ingredients_by_blend_ordered_by_name(
+        self, repository, sample_label, sample_blend
+    ):
+        """get_ingredients_by_blend returns ingredients ordered by name."""
+        repository.insert_label(sample_label)
+        repository.insert_blend(sample_blend)
+        ingredient1 = Ingredient(
+            id=uuid4(),
+            blend_id=sample_blend.id,
+            type=IngredientType.BLEND,
+            name="Zinc",
+            code="ZINC",
+            amount=15.0,
+            unit="mg",
+        )
+        ingredient2 = Ingredient(
+            id=uuid4(),
+            blend_id=sample_blend.id,
+            type=IngredientType.BLEND,
+            name="Ashwagandha",
+            code="ASHWAGANDHA",
+            amount=100.0,
+            unit="mg",
+        )
+        repository.insert_ingredient(ingredient1)
+        repository.insert_ingredient(ingredient2)
+
+        result = repository.get_ingredients_by_blend(sample_blend.id)
+        assert len(result) == 2
+        assert result[0].name == "Ashwagandha"
+        assert result[1].name == "Zinc"

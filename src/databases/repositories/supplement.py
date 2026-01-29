@@ -224,6 +224,114 @@ class SupplementRepository:
             allergen_info=row["allergen_info"],
         )
 
+    def get_all_labels(self) -> list[SupplementLabel]:
+        """Get all supplement labels ordered by brand and product name.
+
+        Returns:
+            List of SupplementLabel models.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, source_file, created_at, brand, product_name, form,
+                   serving_size, servings_per_container, suggested_use,
+                   warnings, allergen_info
+            FROM supplement_labels
+            ORDER BY brand, product_name
+            """
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_label(row) for row in rows]
+
+    def get_ingredients_by_label(self, label_id: UUID) -> list[Ingredient]:
+        """Get all ingredients for a supplement label.
+
+        Args:
+            label_id: UUID of the supplement label.
+
+        Returns:
+            List of Ingredient models for the label.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, supplement_label_id, blend_id, type, name, code,
+                   amount, unit, percent_dv, form
+            FROM ingredients
+            WHERE supplement_label_id = ?
+            ORDER BY type, name
+            """,
+            (str(label_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_ingredient(row) for row in rows]
+
+    def get_blends_by_label(self, label_id: UUID) -> list[ProprietaryBlend]:
+        """Get all proprietary blends for a supplement label.
+
+        Args:
+            label_id: UUID of the supplement label.
+
+        Returns:
+            List of ProprietaryBlend models for the label.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, supplement_label_id, name, total_amount, total_unit
+            FROM proprietary_blends
+            WHERE supplement_label_id = ?
+            ORDER BY name
+            """,
+            (str(label_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_blend(row) for row in rows]
+
+    def get_ingredients_by_blend(self, blend_id: UUID) -> list[Ingredient]:
+        """Get all ingredients for a proprietary blend.
+
+        Args:
+            blend_id: UUID of the proprietary blend.
+
+        Returns:
+            List of Ingredient models for the blend.
+        """
+        conn = self._client.connection
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, supplement_label_id, blend_id, type, name, code,
+                   amount, unit, percent_dv, form
+            FROM ingredients
+            WHERE blend_id = ?
+            ORDER BY name
+            """,
+            (str(blend_id),),
+        )
+        rows = cursor.fetchall()
+        return [self._row_to_ingredient(row) for row in rows]
+
+    def _row_to_blend(self, row) -> ProprietaryBlend:
+        """Convert a database row to a ProprietaryBlend model.
+
+        Args:
+            row: SQLite Row object.
+
+        Returns:
+            ProprietaryBlend model.
+        """
+        return ProprietaryBlend(
+            id=UUID(row["id"]),
+            supplement_label_id=UUID(row["supplement_label_id"]),
+            name=row["name"],
+            total_amount=row["total_amount"],
+            total_unit=row["total_unit"],
+        )
+
     def _row_to_ingredient(self, row) -> Ingredient:
         """Convert a database row to an Ingredient model.
 
