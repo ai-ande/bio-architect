@@ -9,12 +9,15 @@ import sys
 from typing import Optional
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlmodel import Session, or_, select
 
 from src.databases.clients.sqlite import DatabaseClient
 from src.databases.datatypes.supplement import (
     Ingredient,
+    IngredientType,
     ProprietaryBlend,
+    SupplementForm,
     SupplementLabel,
 )
 
@@ -74,6 +77,162 @@ def blend_to_dict(blend: ProprietaryBlend) -> dict:
         "total_amount": blend.total_amount,
         "total_unit": blend.total_unit,
     }
+
+
+def parse_supplement_json(
+    data: dict, source_file: str | None
+) -> tuple[SupplementLabel, list[ProprietaryBlend], list[Ingredient]]:
+    """Parse JSON into database models.
+
+    All model construction happens here, triggering Pydantic validation.
+    If any validation fails, no database operations have occurred yet.
+
+    Args:
+        data: JSON dict with supplement data.
+        source_file: Optional source file path.
+
+    Returns:
+        Tuple of (SupplementLabel, list of ProprietaryBlend, list of Ingredient).
+
+    Raises:
+        ValidationError: If model validation fails.
+        KeyError: If required fields are missing.
+    """
+    # Create SupplementLabel
+    label = SupplementLabel(
+        brand=data["brand"],
+        product_name=data["product_name"],
+        form=SupplementForm(data["form"]),
+        serving_size=data["serving_size"],
+        servings_per_container=data.get("servings_per_container"),
+        suggested_use=data.get("suggested_use"),
+        warnings=data.get("warnings", []),
+        allergen_info=data.get("allergen_info"),
+        source_file=source_file,
+    )
+
+    blends: list[ProprietaryBlend] = []
+    ingredients: list[Ingredient] = []
+
+    # Parse active ingredients (linked to label)
+    for ing_data in data.get("active_ingredients", []):
+        ingredient = Ingredient.model_validate({
+            "supplement_label_id": label.id,
+            "blend_id": None,
+            "type": IngredientType.ACTIVE.value,
+            "name": ing_data["name"],
+            "code": ing_data["code"],
+            "amount": ing_data.get("amount"),
+            "unit": ing_data.get("unit"),
+            "percent_dv": ing_data.get("percent_dv"),
+            "form": ing_data.get("form"),
+        })
+        ingredients.append(ingredient)
+
+    # Parse other ingredients (linked to label)
+    for ing_data in data.get("other_ingredients", []):
+        ingredient = Ingredient.model_validate({
+            "supplement_label_id": label.id,
+            "blend_id": None,
+            "type": IngredientType.OTHER.value,
+            "name": ing_data["name"],
+            "code": ing_data["code"],
+            "amount": ing_data.get("amount"),
+            "unit": ing_data.get("unit"),
+            "percent_dv": ing_data.get("percent_dv"),
+            "form": ing_data.get("form"),
+        })
+        ingredients.append(ingredient)
+
+    # Parse proprietary blends and their ingredients
+    for blend_data in data.get("proprietary_blends", []):
+        blend = ProprietaryBlend(
+            supplement_label_id=label.id,
+            name=blend_data["name"],
+            total_amount=blend_data.get("total_amount"),
+            total_unit=blend_data.get("total_unit"),
+        )
+        blends.append(blend)
+
+        # Parse blend ingredients (linked to blend, not label)
+        for ing_data in blend_data.get("ingredients", []):
+            ingredient = Ingredient.model_validate({
+                "supplement_label_id": None,
+                "blend_id": blend.id,
+                "type": IngredientType.BLEND.value,
+                "name": ing_data["name"],
+                "code": ing_data["code"],
+                "amount": ing_data.get("amount"),
+                "unit": ing_data.get("unit"),
+                "percent_dv": ing_data.get("percent_dv"),
+                "form": ing_data.get("form"),
+            })
+            ingredients.append(ingredient)
+
+    return label, blends, ingredients
+
+
+def cmd_import(session: Session, args: argparse.Namespace) -> None:
+    """Import supplement from JSON file.
+
+    Transaction handling:
+    1. Parse JSON and construct all models (validation happens here)
+    2. If validation passes, add all to session
+    3. Commit as single atomic transaction
+    4. If anything fails, nothing is committed (no dangling records)
+    """
+    # Read JSON from file or stdin
+    if args.file:
+        try:
+            with open(args.file) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f"File not found: {args.file}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON in file: {e}", file=sys.stderr)
+            sys.exit(1)
+        source_file = args.file
+    else:
+        try:
+            data = json.load(sys.stdin)
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON from stdin: {e}", file=sys.stderr)
+            sys.exit(1)
+        source_file = None
+
+    # Step 1: Parse and validate ALL data before any DB operations
+    try:
+        label, blends, ingredients = parse_supplement_json(data, source_file)
+    except (ValidationError, ValueError, KeyError) as e:
+        print(f"Validation error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Step 2: Add all to session with flush() to ensure FK order
+    session.add(label)
+    session.flush()  # Ensure label exists before blends/ingredients
+
+    for blend in blends:
+        session.add(blend)
+    session.flush()  # Ensure blends exist before blend ingredients
+
+    for ingredient in ingredients:
+        session.add(ingredient)
+
+    # Step 3: Single atomic commit - all or nothing
+    session.commit()
+
+    # Output
+    if args.json:
+        print(json.dumps({
+            "supplement_label_id": str(label.id),
+            "blends_created": len(blends),
+            "ingredients_created": len(ingredients),
+        }, indent=2))
+    else:
+        print(f"Imported supplement label: {label.id}")
+        print(f"  Blends: {len(blends)}")
+        print(f"  Ingredients: {len(ingredients)}")
 
 
 def cmd_list(session: Session, args: argparse.Namespace) -> None:
@@ -218,7 +377,7 @@ def cmd_search(session: Session, args: argparse.Namespace) -> None:
 def create_parser() -> argparse.ArgumentParser:
     """Create argument parser for supplements CLI."""
     parser = argparse.ArgumentParser(
-        prog="supplement",
+        prog="supplements",
         description="Query supplement label data from the command line.",
     )
     parser.add_argument(
@@ -228,6 +387,13 @@ def create_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # import command
+    import_parser = subparsers.add_parser("import", help="Import supplement from JSON file")
+    import_parser.add_argument(
+        "--file", "-f",
+        help="JSON file to read (default: stdin)",
+    )
 
     # list command
     subparsers.add_parser("list", help="List all supplement labels")
@@ -259,7 +425,9 @@ def main(args: Optional[list[str]] = None) -> None:
 
     with DatabaseClient() as client:
         with client.get_session() as session:
-            if parsed_args.command == "list":
+            if parsed_args.command == "import":
+                cmd_import(session, parsed_args)
+            elif parsed_args.command == "list":
                 cmd_list(session, parsed_args)
             elif parsed_args.command == "label":
                 cmd_label(session, parsed_args)

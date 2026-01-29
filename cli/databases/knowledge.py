@@ -172,8 +172,8 @@ def parse_knowledge_json(data: dict) -> tuple[Knowledge, list[KnowledgeTag], lis
     return knowledge, tags, links
 
 
-def cmd_add(session: Session, args: argparse.Namespace) -> None:
-    """Add a new knowledge entry from JSON."""
+def cmd_create(session: Session, args: argparse.Namespace) -> None:
+    """Create a new knowledge entry from JSON."""
     # Read JSON from file or stdin
     if args.file:
         try:
@@ -221,7 +221,7 @@ def cmd_add(session: Session, args: argparse.Namespace) -> None:
         result["links"] = [link_to_dict(l) for l in links]
         print(json.dumps(result, indent=2))
     else:
-        print(f"Added knowledge entry: {knowledge.id}")
+        print(f"Created knowledge entry: {knowledge.id}")
 
 
 def cmd_get(session: Session, args: argparse.Namespace) -> None:
@@ -469,9 +469,9 @@ def create_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
-    # add command
-    add_parser = subparsers.add_parser("add", help="Add a new knowledge entry from JSON")
-    add_parser.add_argument(
+    # create command
+    create_parser = subparsers.add_parser("create", help="Create a new knowledge entry from JSON")
+    create_parser.add_argument(
         "--file", "-f",
         help="JSON file to read (default: stdin)",
     )
@@ -511,8 +511,8 @@ def main(args: Optional[list[str]] = None) -> None:
 
     with DatabaseClient() as client:
         with client.get_session() as session:
-            if parsed_args.command == "add":
-                cmd_add(session, parsed_args)
+            if parsed_args.command == "create":
+                cmd_create(session, parsed_args)
             elif parsed_args.command == "get":
                 cmd_get(session, parsed_args)
             elif parsed_args.command == "list":
